@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { rational } from '@cutroom/core';
+import { isSupportedExtension, rational } from '@cutroom/core';
 import { analyzeFrameTiming } from '../src/timing';
-import { displaySize, interpretProbe, isSupportedExtension, type FfprobeJson } from '../src/probe';
+import { displaySize, interpretProbe, type FfprobeJson } from '../src/probe';
 import { planProxy, proxyDimensions, buildProxyArgs } from '../src/proxy';
 import { parseVersion } from '../src/ffmpeg';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from '../src/security';

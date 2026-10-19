@@ -275,6 +275,41 @@ describe('rescan, missing media and relink', () => {
     await expect(fs.stat(path.join(dir, 'a', 'clip.mp4'))).resolves.toBeTruthy(); // original untouched
     expect((await b.app.inject({ method: 'DELETE', url: `/api/media/${clip.id}` })).statusCode).toBe(404);
   });
+
+  it('a removed file stays removed across rescans and re-opens until explicitly re-included', async () => {
+    const b = await makeApp();
+    const dir = await makeFolder();
+    await openProject(b, dir);
+    await b.jobs.idle();
+    const clip = byName(b.manager.current!.media, 'clip.mp4');
+    await b.app.inject({ method: 'DELETE', url: `/api/media/${clip.id}` });
+    expect(b.manager.summary()!.ignoredCount).toBe(1);
+
+    const rescan = (await b.app.inject({ method: 'POST', url: '/api/project/rescan' })).json() as ScanReport;
+    expect(rescan.imported).toBe(0);
+    expect(b.manager.current!.media.map((m) => m.name)).not.toContain('clip.mp4');
+
+    await b.manager.flush();
+    await b.app.inject({ method: 'POST', url: '/api/project/close' });
+    await openProject(b, dir);
+    expect(b.manager.current!.media.map((m) => m.name)).not.toContain('clip.mp4');
+
+    const again = (await b.app.inject({ method: 'POST', url: '/api/project/rescan', payload: { includeIgnored: true } })).json() as ScanReport;
+    expect(again.imported).toBe(1);
+    expect(b.manager.summary()!.ignoredCount).toBe(0);
+    expect(b.manager.current!.media.map((m) => m.name)).toContain('clip.mp4');
+  });
+
+  it('explicitly importing a removed file by path brings it back', async () => {
+    const b = await makeApp();
+    const dir = await makeFolder();
+    await openProject(b, dir);
+    const clip = byName(b.manager.current!.media, 'clip.mp4');
+    await b.app.inject({ method: 'DELETE', url: `/api/media/${clip.id}` });
+    const res = await b.app.inject({ method: 'POST', url: '/api/media/import', payload: { path: path.join(dir, 'a', 'clip.mp4') } });
+    expect(res.statusCode).toBe(200);
+    expect(b.manager.summary()!.ignoredCount).toBe(0);
+  });
 });
 
 describe('upload', () => {

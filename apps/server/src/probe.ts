@@ -6,6 +6,7 @@ import {
   type MediaType,
   type Rational,
   type VideoStreamInfo,
+  IMAGE_EXTENSIONS,
   parseDecimal,
   parseRational,
   rational,
@@ -15,19 +16,6 @@ import {
 } from '@cutroom/core';
 import { runText } from './proc';
 import { analyzeFrameTiming, type FrameTimingReport } from './timing';
-
-export const VIDEO_EXTENSIONS = new Set([
-  '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.ts', '.mxf', '.mpg', '.mpeg', '.wmv', '.flv', '.3gp',
-]);
-export const AUDIO_EXTENSIONS = new Set([
-  '.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.aif', '.aiff', '.wma',
-]);
-export const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff', '.gif']);
-
-export function isSupportedExtension(file: string): boolean {
-  const ext = path.extname(file).toLowerCase();
-  return VIDEO_EXTENSIONS.has(ext) || AUDIO_EXTENSIONS.has(ext) || IMAGE_EXTENSIONS.has(ext);
-}
 
 /* ---- the subset of ffprobe JSON we read ---- */
 

@@ -147,10 +147,10 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     return { ok: true };
   });
 
-  app.post('/api/project/rescan', async () => {
+  app.post<{ Body?: { includeIgnored?: boolean } }>('/api/project/rescan', async (req) => {
     requireFfmpeg();
     manager.requireProject();
-    return manager.scan();
+    return manager.scan({ includeIgnored: req.body?.includeIgnored === true });
   });
 
   app.patch<{ Body: { width?: number; height?: number; fps?: { num: number; den: number } } }>(
@@ -209,6 +209,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     async (req, reply) => {
       requireFfmpeg();
       manager.requireProject();
+      manager.clearIgnored(req.body.path);
       const outcome = await manager.importFile(path.resolve(req.body.path));
       if (outcome.kind === 'rejected') return reply.code(422).send({ error: 'rejected', message: outcome.reason });
       return outcome.media;

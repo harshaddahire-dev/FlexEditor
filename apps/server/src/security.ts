@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { isSupportedExtension } from './probe';
+import { isSupportedExtension } from '@cutroom/core';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 

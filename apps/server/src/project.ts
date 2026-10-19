@@ -11,6 +11,7 @@ import {
   type ProjectSummary,
   type ScanReport,
   emptyStatus,
+  isSupportedExtension,
   toNumber,
 } from '@cutroom/core';
 import { AppDb, ProjectDb } from './db';
@@ -26,7 +27,7 @@ import {
   proxiesDir,
   toStoredPath,
 } from './paths';
-import { isSupportedExtension, probeFile } from './probe';
+import { probeFile } from './probe';
 import { generatePoster, generateProxy, planProxy, proxyDimensions } from './proxy';
 import { ProcessAbortedError } from './proc';
 import { exists, fingerprintFile, mapLimit, writeJsonAtomic } from './util';
@@ -113,6 +114,7 @@ export class ProjectManager extends EventEmitter<Events> {
       folder: this.folder,
       settings: this.project.settings,
       mediaCount: this.project.media.length,
+      ignoredCount: this.project.ignoredPaths?.length ?? 0,
     };
   }
 
@@ -204,9 +206,14 @@ export class ProjectManager extends EventEmitter<Events> {
 
   /* -------------------------------------------------------------------- scan */
 
-  async scan(): Promise<ScanReport> {
+  async scan(opts: { includeIgnored?: boolean } = {}): Promise<ScanReport> {
     const { project, folder } = this.requireProject();
-    const files = await this.walk(folder);
+    if (opts.includeIgnored && project.ignoredPaths?.length) {
+      project.ignoredPaths = [];
+      this.emit('project', this.summary());
+    }
+    const ignored = new Set(project.ignoredPaths ?? []);
+    const files = (await this.walk(folder)).filter((f) => !ignored.has(toStoredPath(folder, f)));
     const report: ScanReport = { imported: 0, changed: 0, unchanged: 0, missing: 0, relinked: 0, rejected: [] };
 
     const outcomes = await mapLimit(files, this.opts.probeConcurrency ?? 4, async (f) => ({ f, o: await this.importFile(f) }));
@@ -513,6 +520,9 @@ export class ProjectManager extends EventEmitter<Events> {
     const m = this.findMedia(id);
     if (!m) throw new ProjectError('no_such_media', `No media with id ${id}.`, 404);
     await this.discardDerived(m);
+    // Remember the removal, otherwise the next scan would just import the file again.
+    const ignored = (project.ignoredPaths ??= []);
+    if (!ignored.includes(m.path)) ignored.push(m.path);
     project.media = project.media.filter((x) => x.id !== id);
     this.scheduleSave();
     this.emit('mediaRemoved', id);
@@ -564,6 +574,16 @@ export class ProjectManager extends EventEmitter<Events> {
     this.db!.putFile({ path: stored, fingerprint, size: st.size, mtimeMs: st.mtimeMs, mediaId: id });
     await this.ensureDerived(media);
     return media;
+  }
+
+  /** An explicit import of a previously removed file brings it back. */
+  clearIgnored(absPath: string): void {
+    const { project, folder } = this.requireProject();
+    const stored = toStoredPath(folder, path.resolve(absPath));
+    if (project.ignoredPaths?.includes(stored)) {
+      project.ignoredPaths = project.ignoredPaths.filter((p) => p !== stored);
+      this.emit('project', this.summary());
+    }
   }
 
   /** Files in the project folder with the same name as a missing media entry — relink suggestions. */

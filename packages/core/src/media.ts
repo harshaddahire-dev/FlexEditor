@@ -108,6 +108,8 @@ export interface Project {
   sequences: unknown[];
   captionStyles: unknown[];
   history: unknown[];
+  /** Files the user removed from the bin; rescans skip them until they are explicitly re-included. */
+  ignoredPaths?: string[];
 }
 
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
@@ -130,4 +132,24 @@ export function emptyStatus(): MediaStatus {
     beats: 'pending',
     loudness: 'pending',
   };
+}
+
+export const VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.mp4', '.m4v', '.mov', '.mkv', '.webm', '.avi', '.mts', '.m2ts', '.ts', '.mxf', '.mpg', '.mpeg', '.wmv', '.flv', '.3gp',
+]);
+export const AUDIO_EXTENSIONS: ReadonlySet<string> = new Set([
+  '.wav', '.mp3', '.m4a', '.aac', '.flac', '.ogg', '.opus', '.aif', '.aiff', '.wma',
+]);
+export const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tif', '.tiff', '.gif']);
+
+/** Lower-cased extension including the dot ('' when none). Works on both POSIX and Windows paths. */
+export function extensionOf(file: string): string {
+  const base = file.split(/[\\/]/).pop() ?? '';
+  const i = base.lastIndexOf('.');
+  return i > 0 ? base.slice(i).toLowerCase() : '';
+}
+
+export function isSupportedExtension(file: string): boolean {
+  const ext = extensionOf(file);
+  return VIDEO_EXTENSIONS.has(ext) || AUDIO_EXTENSIONS.has(ext) || IMAGE_EXTENSIONS.has(ext);
 }

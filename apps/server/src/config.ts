@@ -27,8 +27,8 @@ export function defaultDataDir(): string {
 
 export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig {
   return {
-    host: process.env.HOST ?? '127.0.0.1',
-    port: Number(process.env.PORT ?? 3001),
+    host: process.env.CUTROOM_HOST ?? '127.0.0.1',
+    port: Number(process.env.CUTROOM_PORT ?? 3001),
     dataDir: defaultDataDir(),
     ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
     ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',

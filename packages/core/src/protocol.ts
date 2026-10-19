@@ -54,6 +54,8 @@ export interface ProjectSummary {
   folder: string;
   settings: ProjectSettings;
   mediaCount: number;
+  /** Files removed from the bin and skipped by scans. */
+  ignoredCount: number;
 }
 
 export interface ProjectResponse {

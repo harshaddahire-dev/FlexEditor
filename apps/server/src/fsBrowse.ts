@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { FsEntry, FsListing } from '@cutroom/core';
-import { isSupportedExtension } from './probe';
+import { isSupportedExtension } from '@cutroom/core';
 import { exists } from './util';
 
 async function quickLinks(): Promise<{ label: string; path: string }[]> {
