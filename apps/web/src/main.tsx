@@ -5,6 +5,7 @@ import '@fontsource-variable/jetbrains-mono';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/app.css';
+import './styles/polish.css';
 import { App } from './App';
 import { useApp } from './store/app';
 import { useTimeline } from './store/timeline';

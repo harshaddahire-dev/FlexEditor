@@ -3,6 +3,7 @@ import * as ToggleGroup from '@radix-ui/react-toggle-group';
 import { ChevronDown, Download, PanelRight, Redo2, Settings, Undo2 } from 'lucide-react';
 import { useApp } from '../store/app';
 import { useUi, type Workspace } from '../store/ui';
+import { Logo } from './Logo';
 import { ICON, Tip } from './ui';
 
 const WORKSPACES: { id: Workspace; label: string }[] = [
@@ -25,6 +26,7 @@ export function TopBar() {
 
   return (
     <header className="topbar">
+      <Logo size={22} />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button className="btn btn--ghost topbar__project" aria-label="Project menu">

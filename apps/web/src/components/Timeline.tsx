@@ -1,5 +1,5 @@
 import { type PointerEvent as RPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, LockOpen, Magnet, MousePointer2, Link2, Scissors, ChevronsRight, Volume2, VolumeX, ZoomIn, ZoomOut, Maximize2, Headphones } from 'lucide-react';
+import { Lock, LockOpen, Magnet, MousePointer2, Link2, Scissors, ChevronsRight, Volume2, VolumeX, ZoomIn, ZoomOut, Maximize2, Headphones, Eye, EyeOff } from 'lucide-react';
 import { type Op, type Sequence, framesToTimecode, frameTicks, isClip, itemEnd, sequenceDuration, trackItems } from '@cutroom/core';
 import { ACTIONS, dispatch } from '../lib/actions';
 import { dryRun, makeEnv } from '../lib/env';
@@ -84,11 +84,20 @@ function Headers({ seq }: { seq: Sequence }) {
       <div className="tlh__rows">
         {rows.map(({ track, y, h }) => (
           <div key={track.id} className="tlh__row" data-kind={track.kind} data-testid={`track-${track.name}`} style={{ top: y - scrollY, height: h }}>
-            <span className="tlh__name" title={track.name}>{track.name}</span>
+            <span className="tlh__id">
+              <span className="tlh__name" title={track.name}>{track.name}</span>
+              {h >= 44 ? <span className="tlh__kind">{track.kind === 'video' ? 'Video' : track.kind === 'audio' ? 'Audio' : track.kind}</span> : null}
+            </span>
             <div className="tlh__btns">
-              <Tip label={track.muted ? 'Unmute' : 'Mute'}>
-                <button className="tlh__btn" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.name}`} aria-pressed={track.muted} data-on={track.muted} onClick={() => set(track.id, { muted: !track.muted }, `${track.muted ? 'Unmute' : 'Mute'} ${track.name}`)}>
-                  {track.muted ? <VolumeX size={13} strokeWidth={1.5} /> : <Volume2 size={13} strokeWidth={1.5} />}
+              <Tip label={track.kind === 'video' ? (track.muted ? 'Show track' : 'Hide track') : track.muted ? 'Unmute' : 'Mute'}>
+                <button
+                  className="tlh__btn"
+                  aria-label={`${track.kind === 'video' ? (track.muted ? 'Show' : 'Hide') : track.muted ? 'Unmute' : 'Mute'} ${track.name}`}
+                  aria-pressed={track.muted}
+                  data-on={track.muted}
+                  onClick={() => set(track.id, { muted: !track.muted }, `${track.kind === 'video' ? (track.muted ? 'Show' : 'Hide') : track.muted ? 'Unmute' : 'Mute'} ${track.name}`)}
+                >
+                  {track.kind === 'video' ? (track.muted ? <EyeOff size={13} strokeWidth={1.5} /> : <Eye size={13} strokeWidth={1.5} />) : track.muted ? <VolumeX size={13} strokeWidth={1.5} /> : <Volume2 size={13} strokeWidth={1.5} />}
                 </button>
               </Tip>
               {track.kind === 'audio' ? (

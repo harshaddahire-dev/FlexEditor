@@ -67,7 +67,7 @@ export function activeVideoClips(seq: Sequence, ticks: number): ActiveLayer[] {
   const out: ActiveLayer[] = [];
   let order = 0;
   for (const track of seq.tracks) {
-    if (track.kind !== 'video') continue;
+    if (track.kind !== 'video' || track.muted) continue; // a hidden video track is not rendered
     for (const item of trackItems(track)) {
       if (!isClip(item) || !item.enabled) continue;
       if (item.start > ticks) break;

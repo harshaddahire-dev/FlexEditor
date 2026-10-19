@@ -1,46 +1,67 @@
-/* Design tokens. Dark is the default; light is fully tokenised below. */
+/* Design tokens. Dark is the default; light is fully tokenised below.
+   Neutral graphite (no blue cast) so footage colour reads true; ONE loud colour — the accent — is reserved for selection,
+   focus and primary actions, and the playhead has its own signal hue. */
 :root,
 [data-theme='dark'] {
   color-scheme: dark;
-  --bg-0: #0b0c0e; /* app background */
-  --bg-1: #121417; /* panels */
-  --bg-2: #181b1f; /* raised / inputs */
-  --bg-3: #20242a; /* hover */
-  --line: #2a2f36; /* borders (1px, never heavy shadows) */
-  --text-1: #e7e9ec;
-  --text-2: #a4abb4;
-  --text-3: #6b737d;
-  --accent: #4c8dff; /* selection / focus */
-  --accent-soft: rgb(76 141 255 / 0.14);
-  --playhead: #ff5436;
+  --bg-0: #111112; /* wells: monitor stage, timeline lanes */
+  --bg-1: #19191b; /* panels */
+  --bg-2: #222225; /* panel headers, inputs, raised */
+  --bg-3: #2b2b2f; /* hover */
+  --bg-4: #36363b; /* pressed / active */
+  --line: #2a2a2e; /* hairlines */
+  --line-strong: #3a3a40;
+  --text-1: #ebebed;
+  --text-2: #a9a9b0;
+  --text-3: #74747c;
+  --accent: #4f8df7;
+  --accent-hover: #6aa0ff;
+  --accent-ink: #ffffff;
+  --accent-soft: rgb(79 141 247 / 0.16);
+  --playhead: #ff5a36;
   --success: #3dbe8b;
   --warn: #e8b33a;
   --danger: #f0524f;
-  --clip-video: #34588c;
-  --clip-audio: #2f7a5c;
+  /* clips: a muted body with a lighter title bar, like the grading-suite timelines */
+  --clip-video: #3a5a86;
+  --clip-video-hd: #4f73a6;
+  --clip-audio: #2f6b52;
+  --clip-audio-hd: #3f8a6b;
   --clip-caption: #8c7330;
+  --clip-caption-hd: #a68a3a;
   --clip-graphics: #6e4e99;
-  --clip-agent: #4c8dff;
-  --scrim: rgb(5 6 8 / 0.62);
+  --clip-graphics-hd: #8a63b8;
+  --clip-agent: #4f8df7;
+  --scrim: rgb(5 5 7 / 0.62);
+  --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.5), 0 0 0 1px var(--line-strong);
 }
 
 [data-theme='light'] {
   color-scheme: light;
-  --bg-0: #eef0f3;
-  --bg-1: #f7f8fa;
+  --bg-0: #e9e9ec;
+  --bg-1: #f4f4f6;
   --bg-2: #ffffff;
-  --bg-3: #e8ebef;
-  --line: #d3d8df;
-  --text-1: #14171a;
-  --text-2: #4a525c;
-  --text-3: #79818b;
-  --accent: #2468e0;
-  --accent-soft: rgb(36 104 224 / 0.12);
+  --bg-3: #e6e6ea;
+  --bg-4: #d9d9de;
+  --line: #d6d6db;
+  --line-strong: #c3c3ca;
+  --text-1: #17171a;
+  --text-2: #4b4b53;
+  --text-3: #7a7a83;
+  --accent: #2a67e0;
+  --accent-hover: #1f56c4;
+  --accent-ink: #ffffff;
+  --accent-soft: rgb(42 103 224 / 0.12);
   --playhead: #e03c1f;
   --success: #1f9a6b;
   --warn: #b27d0a;
   --danger: #d23b38;
-  --scrim: rgb(20 23 26 / 0.4);
+  --clip-video: #6f8fbd;
+  --clip-video-hd: #5a7cae;
+  --clip-audio: #6fae92;
+  --clip-audio-hd: #589a7c;
+  --scrim: rgb(20 20 24 / 0.4);
+  --shadow-pop: 0 8px 28px rgb(0 0 0 / 0.18), 0 0 0 1px var(--line-strong);
 }
 
 :root {

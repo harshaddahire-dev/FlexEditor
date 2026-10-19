@@ -1,6 +1,7 @@
 import * as Tabs from '@radix-ui/react-tabs';
-import { PanelRightClose } from 'lucide-react';
-import { useUi, type LeftTab } from '../store/ui';
+import { Bot, PanelRightClose } from 'lucide-react';
+import { useUi, type LeftTab, type RightTab } from '../store/ui';
+import { Inspector } from './Inspector';
 import { MediaBin } from './MediaBin';
 import { TranscriptPanel } from './TranscriptPanel';
 import { ICON, Tip } from './ui';
@@ -34,21 +35,36 @@ export function LeftPanel() {
   );
 }
 
+const RIGHT_TABS: { id: RightTab; label: string }[] = [
+  { id: 'inspector', label: 'Inspector' },
+  { id: 'agent', label: 'Agent' },
+];
+
+/** Right side: the clip Inspector, and the agent chat (arrives with the agent runtime). */
 export function AgentPanel() {
-  const toggle = useUi((s) => s.toggleRight);
+  const { toggleRight, rightTab, setRightTab } = useUi();
   return (
-    <aside className="panel panel--right" aria-label="Agent" style={{ borderLeft: '1px solid var(--line)' }}>
-      <div className="panel__head">
-        <span className="panel__title">Agent</span>
-        <span className="spacer" />
-        <Tip label="Hide agent panel">
-          <button className="btn btn--ghost btn--icon btn--sm" aria-label="Hide agent panel" onClick={toggle}><PanelRightClose {...ICON} /></button>
-        </Tip>
-      </div>
-      <div className="empty">
-        <p>Editing agents are not connected yet.</p>
-        <p className="faint">Model providers, the Director and specialists land in later build steps.</p>
-      </div>
+    <aside className="panel panel--right" aria-label="Inspector and agent">
+      <Tabs.Root className="tabs__content" value={rightTab} onValueChange={(v) => setRightTab(v as RightTab)}>
+        <div className="tabs__bar">
+          <Tabs.List className="tabs__list tabs__list--bar" aria-label="Right panel">
+            {RIGHT_TABS.map((t) => (
+              <Tabs.Trigger key={t.id} className="tabs__tab" value={t.id}>{t.label}</Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          <Tip label="Hide panel">
+            <button className="btn btn--ghost btn--icon btn--sm" aria-label="Hide agent panel" onClick={toggleRight}><PanelRightClose {...ICON} /></button>
+          </Tip>
+        </div>
+        <Tabs.Content className="tabs__content tabs__scroll" value="inspector"><Inspector /></Tabs.Content>
+        <Tabs.Content className="tabs__content" value="agent">
+          <div className="empty empty--center">
+            <Bot size={28} strokeWidth={1.25} />
+            <p>Editing agents are not connected yet.</p>
+            <p className="faint">Model providers, the Director and its specialists arrive in the next build steps. They will edit through the same operations the Inspector uses.</p>
+          </div>
+        </Tabs.Content>
+      </Tabs.Root>
     </aside>
   );
 }
