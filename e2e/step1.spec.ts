@@ -123,6 +123,8 @@ test('open folder → import → proxies → inspect → upload → persist → 
 test('panels resize with the keyboard and persist; agent panel collapses', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/');
+  // the server may still have the previous test's project open: wait for whichever screen appears
+  await expect(page.locator('.panel--left').or(page.getByLabel('Project folder path'))).toBeVisible();
   if (await page.getByLabel('Project folder path').isVisible()) {
     await page.getByLabel('Project folder path').fill(footage());
     await page.getByRole('button', { name: 'Open', exact: true }).click();

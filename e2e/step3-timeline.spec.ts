@@ -74,7 +74,9 @@ test('build, cut, move, trim, undo and delete on the timeline with mouse and key
     const c = document.querySelector('[data-testid="timeline-canvas"]') as HTMLCanvasElement;
     const ctx = c.getContext('2d')!;
     const dpr = window.devicePixelRatio || 1;
-    const p = ctx.getImageData(Math.round(60 * dpr), Math.round((26 + 33 + 20) * dpr), 1, 1).data; // inside V1, below the empty V2 lane
+    const seq = (window as unknown as { __cutroom: { useApp: { getState(): { sequence: { tracks: { kind: string; height: number }[] } } } } }).__cutroom.useApp.getState().sequence;
+    const v2 = seq.tracks.filter((t) => t.kind === 'video').at(-1)!.height; // V2 is the top lane
+    const p = ctx.getImageData(Math.round(60 * dpr), Math.round((26 + v2 + 1 + 20) * dpr), 1, 1).data; // inside V1, below the empty V2 lane
     return [p[0], p[1], p[2]];
   });
   expect(painted).not.toEqual([11, 12, 14]); // not the --bg-0 lane colour
