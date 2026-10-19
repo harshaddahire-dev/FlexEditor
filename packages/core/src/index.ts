@@ -6,3 +6,7 @@ export * from './edit';
 export * from './dsp';
 export * from './providers';
 export * from './agent';
+export * from './effects';
+export * from './transitions';
+export * from './captionStyles';
+export * from './captions';

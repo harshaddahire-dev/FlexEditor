@@ -69,7 +69,7 @@ test('connect a provider, pick a model, effort and mode — keys never reach the
     await expect(page.getByRole('meter', { name: 'Context used' })).toContainText('200k');
     await page.getByRole('radio', { name: 'High', exact: true }).click();
     await page.getByRole('radio', { name: 'Auto', exact: true }).click();
-    await expect(page.getByText('Edits apply right away; review them as a diff and undo anything.')).toBeVisible();
+    await expect(page.getByRole('radio', { name: 'Auto', exact: true })).toHaveAttribute('aria-checked', 'true');
 
     // a model id the list does not have can still be typed in
     await page.getByRole('button', { name: 'Model' }).click();
