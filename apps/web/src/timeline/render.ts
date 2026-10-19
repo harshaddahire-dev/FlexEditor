@@ -87,6 +87,20 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
   const clip = isClip(item) ? item : null;
   const disabled = clip && !clip.enabled;
 
+  // zoomed far out, a clip is a few pixels wide: a plain block says everything a detailed one would, at a fraction of the cost
+  // (this is what keeps a 1,200-clip timeline at 60 fps with the whole thing in view)
+  if (w < 8 && !selected && !ghost) {
+    ctx.globalAlpha = disabled ? 0.4 : 1;
+    ctx.fillStyle = kindColor(t, track.kind);
+    ctx.fillRect(x0, y, Math.max(1, w - (w > 3 ? 1 : 0)), h);
+    if (w > 3) {
+      ctx.fillStyle = headColor(t, track.kind);
+      ctx.fillRect(x0, y, Math.max(1, w - 1), Math.min(15, h));
+    }
+    ctx.globalAlpha = 1;
+    return;
+  }
+
   ctx.save();
   ctx.globalAlpha = ghost ? 0.55 : disabled ? 0.4 : 1;
   const base = kindColor(t, track.kind);

@@ -70,7 +70,7 @@ describe('agent tool latency on a 1,200-clip timeline', () => {
     const marks = new Map<string, number>();
     const times: { name: string; ms: number; ok: boolean }[] = [];
     // warm up V8 once, like a long-running server would be
-    await runAgent(bigHost(scripted([() => ({ calls: calls.slice(0, 12) }), () => ({ text: 'x' })])), { runId: 'w', prompt: 'x', mode: 'auto', effort: 'off', model: 'm', emit: () => undefined, approve: async () => true });
+    await runAgent(bigHost(scripted([() => ({ calls }), () => ({ text: 'x' })])), { runId: 'w', prompt: 'x', mode: 'auto', effort: 'off', model: 'm', emit: () => undefined, approve: async () => true });
     await runAgent(host, {
       runId: 'perf',
       prompt: 'benchmark',
