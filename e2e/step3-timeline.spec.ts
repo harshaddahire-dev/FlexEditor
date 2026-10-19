@@ -154,7 +154,8 @@ test('transport, shuttle keys, in/out, markers, zoom and the command palette', a
   const tc = page.getByLabel('Playhead timecode');
   // Space plays from the playhead; it advances in whole frames and stops again
   await page.keyboard.press('Space');
-  await page.waitForTimeout(700);
+  await expect.poll(async () => tc.textContent(), { timeout: 8000 }).not.toBe('00:00:00:00'); // first play starts the audio device
+  await page.waitForTimeout(400);
   await page.keyboard.press('Space');
   const stopped = await tc.textContent();
   expect(stopped).not.toBe('00:00:00:00');
