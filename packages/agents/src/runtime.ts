@@ -4,12 +4,14 @@ import { baseline, qaCheck } from './qa';
 import { PREAMBLE, ROLES, SPECIALISTS } from './roles';
 import { editTools } from './tools/edit';
 import { type ToolDef, defineTool, readTools } from './tools/read';
+import { skillTools } from './tools/skills';
+import type { ExternalTool, PluginContext, Skill } from '@cutroom/plugin-sdk';
 import { type AgentHost, HostEditError, type Role, type RunOptions, type RunResult, ToolError } from './types';
 
 const MAX_RESULT_CHARS = 12_000;
 const QA_ROUNDS = 2;
 
-const TOOLS = new Map<string, ToolDef>([...readTools, ...editTools].map((t) => [t.name, t]));
+const TOOLS = new Map<string, ToolDef>([...readTools, ...editTools, ...skillTools].map((t) => [t.name, t]));
 
 /** JSON Schema of a tool's arguments, as the providers expect it. */
 export function jsonSchemaOf(schema: z.ZodType): Record<string, unknown> {
@@ -28,9 +30,18 @@ const delegateTool = defineTool({
   },
 });
 
-export function toolSpecsFor(role: Role): ToolSpec[] {
+export function toolSpecsFor(role: Role, external: ExternalTool[] = []): ToolSpec[] {
   const names = ROLES[role].tools;
-  return names.map((n) => (n === 'delegate' ? delegateTool : TOOLS.get(n))).filter((t): t is ToolDef => !!t).map((t) => ({ name: t.name, description: t.description, parameters: jsonSchemaOf(t.schema) }));
+  const own = names.map((n) => (n === 'delegate' ? delegateTool : TOOLS.get(n))).filter((t): t is ToolDef => !!t).map((t) => ({ name: t.name, description: t.description, parameters: jsonSchemaOf(t.schema) }));
+  return role === 'director' ? [...own, ...external.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }))] : own;
+}
+
+/** `/skill-name rest of the request` → an instruction that makes the Director load that skill. */
+export function expandSkillCommand(prompt: string, skills: Skill[]): string {
+  const m = /^\/([a-z0-9][a-z0-9-]*)\b\s*([\s\S]*)$/.exec(prompt.trim());
+  const skill = m && skills.find((s) => s.name === m[1]);
+  if (!m || !skill) return prompt;
+  return `Use the "${skill.name}" skill (call use_skill, then follow its steps).${m[2] ? `\nThe user adds: ${m[2]}` : ''}`;
 }
 
 const clip = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -51,10 +62,14 @@ export function summarizeCall(tool: string, args: Record<string, unknown>): stri
   }
 }
 
-function contextLine(host: AgentHost): string {
+function contextLine(host: AgentHost, role: Role = 'director', external: ExternalTool[] = []): string {
   const seq = host.sequence();
   const fps = seq.timebase.fps.num / seq.timebase.fps.den;
-  return `Project: sequence "${seq.name}", ${seq.width}x${seq.height} at ${Math.round(fps * 1000) / 1000} fps, ${host.media().length} media file(s).`;
+  let out = `Project: sequence "${seq.name}", ${seq.width}x${seq.height} at ${Math.round(fps * 1000) / 1000} fps, ${host.media().length} media file(s).`;
+  const skills = host.skills?.() ?? [];
+  if (role === 'director' && skills.length) out += `\nSkills (load with use_skill):\n${skills.map((s) => `- ${s.name}: ${s.description}`).join('\n')}`;
+  if (role === 'director' && external.length) out += `\nExtra tools from plugins/MCP servers (Full access): ${external.map((t) => t.name).join(', ')}. They run outside Cutroom; use them only when the request needs them.`;
+  return out;
 }
 
 class Aborted extends Error {}
@@ -67,6 +82,9 @@ export async function runAgent(host: AgentHost, o: RunOptions): Promise<RunResul
   const group = `run_${o.runId}`;
   const state = { edits: 0, firstRev: null as number | null, lastRev: null as number | null, approveAll: o.mode !== 'ask', ids: 0 };
   const before = baseline(host);
+  // plugins and MCP servers run code outside Cutroom, so they are offered only when the user chose Full access
+  const external = o.mode === 'full' ? (host.externalTools?.() ?? []) : [];
+  const externalByName = new Map(external.map((t) => [t.name, t]));
   o.emit({ type: 'run_start', runId: o.runId, role: 'director', prompt: o.prompt });
 
   const ctx = (role: Role) => ({
@@ -80,7 +98,37 @@ export async function runAgent(host: AgentHost, o: RunOptions): Promise<RunResul
     },
   });
 
+  async function executeExternal(role: Role, call: ToolCall, ext: ExternalTool, id: string): Promise<{ content: string; ok: boolean }> {
+    o.emit({ type: 'tool_call', id, role, tool: ext.name, args: call.arguments, scope: ext.scope });
+    const c = ctx(role);
+    const pctx: PluginContext = {
+      sequence: () => host.sequence(),
+      media: () => host.media(),
+      analysis: (m, k) => host.analysis(m, k),
+      applyOps: (ops, opts) => {
+        const r = host.applyOps(ops, { label: opts.label, origin: `agent:${role}`, group });
+        c.onEdit(r.revision);
+        return r;
+      },
+      log: (m) => host.log?.(`[${ext.source}] ${m}`),
+      signal: o.signal,
+    };
+    try {
+      const data = await ext.call((call.arguments ?? {}) as Record<string, unknown>, pctx);
+      const text = JSON.stringify(data ?? null);
+      o.emit({ type: 'tool_result', id, role, tool: ext.name, ok: true, summary: `${ext.source}: ${ext.name}`, data: text.length > 2000 ? undefined : data });
+      return { content: clip(text, MAX_RESULT_CHARS), ok: true };
+    } catch (e) {
+      if (o.signal?.aborted) throw new Aborted();
+      const msg = e instanceof HostEditError || e instanceof ToolError || e instanceof Error ? e.message : String(e);
+      o.emit({ type: 'tool_result', id, role, tool: ext.name, ok: false, summary: msg });
+      return { content: JSON.stringify({ ok: false, error: msg }), ok: false };
+    }
+  }
+
   async function execute(role: Role, call: ToolCall, depth: number): Promise<{ content: string; ok: boolean }> {
+    const ext = role === 'director' ? externalByName.get(call.name) : undefined;
+    if (ext) return executeExternal(role, call, ext, call.id || `t${++state.ids}`);
     const def = call.name === 'delegate' ? delegateTool : TOOLS.get(call.name);
     const allowed = ROLES[role].tools.includes(call.name);
     const id = call.id || `t${++state.ids}`;
@@ -125,7 +173,7 @@ export async function runAgent(host: AgentHost, o: RunOptions): Promise<RunResul
   }
 
   async function loop(role: Role, messages: ChatMessage[], maxSteps: number, depth: number): Promise<string> {
-    const tools = toolSpecsFor(role);
+    const tools = toolSpecsFor(role, external);
     let final = '';
     for (let step = 0; step < maxSteps; step++) {
       if (o.signal?.aborted) throw new Aborted();
@@ -167,9 +215,9 @@ export async function runAgent(host: AgentHost, o: RunOptions): Promise<RunResul
   }
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: `${PREAMBLE}\n\n${ROLES.director.prompt}\n\n${contextLine(host)}` },
+    { role: 'system', content: `${PREAMBLE}\n\n${ROLES.director.prompt}\n\n${contextLine(host, 'director', external)}` },
     ...(o.history ?? []),
-    { role: 'user', content: o.prompt },
+    { role: 'user', content: expandSkillCommand(o.prompt, host.skills?.() ?? []) },
   ];
   const start = messages.length - 1;
   let summary = '';

@@ -3,6 +3,7 @@ import { AlertTriangle, Brain, Check, ChevronRight, CircleDashed, Eye, EyeOff, H
 import { type ChatTurn, diffSummary } from '@cutroom/core';
 import { ROLE_LABEL, type Step, arrange, stepsOf, toolLabel } from '../lib/agentView';
 import { useAgent } from '../store/agent';
+import { useExtensions } from '../store/extensions';
 import { useTimeline } from '../store/timeline';
 import { ICON } from './ui';
 
@@ -181,6 +182,14 @@ export function Composer() {
   const busy = !!activeRunId;
   const hasClips = useTimeline((s) => s.selection.size);
   void hasClips;
+  const skills = useExtensions((s) => s.info?.skills);
+  const loadExt = useExtensions((s) => s.load);
+  useEffect(() => void loadExt(), [loadExt]);
+  const [pick, setPick] = useState(0);
+  // typing "/" at the start offers the skills whose name matches
+  const slash = /^\/([a-z0-9-]*)$/.exec(text);
+  const options = slash ? (skills ?? []).filter((s) => s.enabled && s.name.startsWith(slash[1]!)).slice(0, 6) : [];
+  const choose = (name: string) => setText(`/${name} `);
   const submit = async () => {
     const p = text.trim();
     if (!p || busy || !ready) return;
@@ -196,6 +205,16 @@ export function Composer() {
         </div>
       ) : null}
       {sendError ? <div className="msg__error composer__error" role="alert">{sendError}</div> : null}
+      {options.length ? (
+        <ul className="slash" role="listbox" aria-label="Skills">
+          {options.map((s, i) => (
+            <li key={s.name} role="option" aria-selected={i === pick % options.length} className="slash__item" data-on={i === pick % options.length} onMouseDown={(e) => (e.preventDefault(), choose(s.name))}>
+              <span className="mono">/{s.name}</span>
+              <span className="faint slash__desc">{s.description}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <form
         className="composer"
         onSubmit={(e) => {
@@ -210,8 +229,18 @@ export function Composer() {
           disabled={!ready}
           aria-label="Message the agent"
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => (setText(e.target.value), setPick(0))}
           onKeyDown={(e) => {
+            if (options.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              e.preventDefault();
+              setPick((p) => p + (e.key === 'ArrowDown' ? 1 : options.length - 1));
+              return;
+            }
+            if (options.length && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+              e.preventDefault();
+              choose(options[pick % options.length]!.name);
+              return;
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               void submit();

@@ -10,3 +10,4 @@ export * from './effects';
 export * from './transitions';
 export * from './captionStyles';
 export * from './captions';
+export * from './extensions';

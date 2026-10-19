@@ -5,6 +5,7 @@ import { AgentSetup } from './AgentSetup';
 import { Inspector } from './Inspector';
 import { CaptionsPanel, EffectsPanel, TransitionsPanel } from './LibraryPanels';
 import { MediaBin } from './MediaBin';
+import { SkillsPanel } from './SkillsPanel';
 import { TranscriptPanel } from './TranscriptPanel';
 import { ICON, Tip } from './ui';
 
@@ -14,7 +15,7 @@ const TABS: { id: LeftTab; label: string; empty?: string }[] = [
   { id: 'captions', label: 'Captions', empty: 'Caption styles and generated captions will be listed here.' },
   { id: 'effects', label: 'Effects', empty: 'Effects, LUTs and motion presets will be listed here.' },
   { id: 'transitions', label: 'Transitions', empty: 'GLSL transitions will be listed here.' },
-  { id: 'skills', label: 'Skills', empty: 'Installed skills (YouTube retention cut, podcast cleanup, …) will be listed here.' },
+  { id: 'skills', label: 'Skills' },
 ];
 
 export function LeftPanel() {
@@ -29,7 +30,7 @@ export function LeftPanel() {
         </Tabs.List>
         {TABS.map((t) => (
           <Tabs.Content key={t.id} className="tabs__content" value={t.id}>
-            {t.id === 'media' ? <MediaBin /> : t.id === 'transcript' ? <TranscriptPanel /> : t.id === 'captions' ? <CaptionsPanel /> : t.id === 'effects' ? <EffectsPanel /> : t.id === 'transitions' ? <TransitionsPanel /> : <div className="empty"><p>{t.empty}</p></div>}
+            {t.id === 'media' ? <MediaBin /> : t.id === 'transcript' ? <TranscriptPanel /> : t.id === 'captions' ? <CaptionsPanel /> : t.id === 'effects' ? <EffectsPanel /> : t.id === 'transitions' ? <TransitionsPanel /> : t.id === 'skills' ? <SkillsPanel /> : <div className="empty"><p>{t.empty}</p></div>}
           </Tabs.Content>
         ))}
       </Tabs.Root>

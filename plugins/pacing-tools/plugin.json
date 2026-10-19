@@ -1,0 +1,7 @@
+{
+  "id": "pacing-tools",
+  "name": "Pacing tools",
+  "version": "1.0.0",
+  "description": "Example plugin: measure the pace of an edit and mark clips that run long.",
+  "main": "index.mjs"
+}

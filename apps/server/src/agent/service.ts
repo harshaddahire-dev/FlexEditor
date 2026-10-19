@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { type AgentHost, HostEditError, runAgent } from '@cutroom/agents';
 import { type ApprovalRequest, type ChatMessage, type ChatState, type ChatTurn, type Media, type Op, type RunEvent, type Sequence, compactEvents, diffIsEmpty, diffSequences, trackItems } from '@cutroom/core';
 import { EditRequestError, type EditSession } from '../edit';
+import type { ExtensionService } from '../extensions';
 import type { ProviderService } from '../providers';
 
 type Decision = boolean | 'always';
@@ -51,6 +52,7 @@ export class AgentService {
   constructor(
     private readonly project: AgentProject,
     private readonly providers: ProviderService,
+    private readonly extensions: ExtensionService,
     private readonly broadcast: (e: { type: 'agent'; kind: 'event'; runId: string; event: RunEvent } | { type: 'agent'; kind: 'turn'; turn: ChatTurn }) => void,
   ) {}
 
@@ -115,6 +117,9 @@ export class AgentService {
       sequence: () => session.state,
       media: () => this.project.media(),
       env: session.editor.env,
+      skills: () => this.extensions.skills(),
+      externalTools: () => this.extensions.externalTools(),
+      log: (m) => console.info(`[extension] ${m}`),
       applyOps: (ops, o) => {
         try {
           const r = session.edit({ ops: ops as Op[], label: o.label, origin: o.origin, group: o.group });
@@ -149,6 +154,7 @@ export class AgentService {
     const { model } = this.requireSettings();
     const settings = this.providers.store.agent();
     const session = this.project.session(); // throws if no project is open
+    await this.extensions.refreshSkills();
     const runId = randomUUID().slice(0, 8);
     const turn: ChatTurn = { runId, prompt, at: Date.now(), status: 'running', events: [], edits: 0, review: 'pending', model };
     this.chat.turns.push(turn);

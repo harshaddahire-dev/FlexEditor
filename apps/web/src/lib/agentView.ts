@@ -25,10 +25,18 @@ const TOOL_LABEL: Record<string, string> = {
   set_track: 'Changed a track',
   add_marker: 'Added a marker',
   add_keyframes: 'Added keyframes',
+  list_skills: 'Looked up skills',
+  use_skill: 'Loaded a skill',
   delegate: 'Asked a specialist',
 };
 
-export const toolLabel = (tool: string): string => TOOL_LABEL[tool] ?? tool.replace(/_/g, ' ');
+/** `mcp_<server>__<tool>` / `plugin_<id>__<tool>` → "Server · tool". */
+function externalLabel(tool: string): string | null {
+  const m = /^(mcp|plugin)_(.+?)__(.+)$/.exec(tool);
+  return m ? `${m[2]!.replace(/[-_]/g, ' ')} · ${m[3]!.replace(/_/g, ' ')}` : null;
+}
+
+export const toolLabel = (tool: string): string => TOOL_LABEL[tool] ?? externalLabel(tool) ?? tool.replace(/_/g, ' ');
 
 /** One step of the transcript the chat renders: a tool call paired with its result (and any approval it waited for). */
 export type Step =

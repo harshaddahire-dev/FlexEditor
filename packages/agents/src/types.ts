@@ -1,3 +1,4 @@
+import type { ExternalTool, PluginContext, Skill } from '@cutroom/plugin-sdk';
 import type { AgentMode, AgentRole, ApprovalRequest, ChatEvent, ChatMessage, ChatRequest, EditEnv, Effort, Media, Op, RunEvent, Sequence, ToolScope } from '@cutroom/core';
 
 export type Role = AgentRole;
@@ -32,6 +33,11 @@ export interface AgentHost {
   applyOps(ops: Op[], opts: { label: string; origin: string; group: string }): { revision: number };
   /** Cached analysis (transcript, silences, scenes, beats, loudness) or null when it does not exist (yet). */
   analysis(mediaId: string, kind: AnalysisKind): Promise<unknown | null>;
+  /** Skills the agents may load (SKILL.md files and plugin skills). */
+  skills?(): Skill[];
+  /** Tools from plugins and MCP servers. Only offered to the Director in Full access mode. */
+  externalTools?(): ExternalTool[];
+  log?(message: string): void;
 }
 
 export interface ToolCtx {
@@ -43,7 +49,7 @@ export interface ToolCtx {
   onEdit(revision: number): void;
 }
 
-export type { ToolScope };
+export type { ToolScope, ExternalTool, PluginContext, Skill };
 
 /** `ok:false` results go back to the model as the tool's answer so it can correct itself. */
 export class ToolError extends Error {

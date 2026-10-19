@@ -5,6 +5,7 @@ export type Workspace = 'edit' | 'audio' | 'captions' | 'color';
 export type LeftTab = 'media' | 'transcript' | 'captions' | 'effects' | 'transitions' | 'skills';
 export type RightTab = 'inspector' | 'agent';
 export type Theme = 'dark' | 'light';
+export type SettingsTab = 'project' | 'providers' | 'extensions' | 'system';
 
 const WORKSPACE_TAB: Record<Workspace, LeftTab> = { edit: 'media', audio: 'media', captions: 'captions', color: 'effects' };
 
@@ -23,12 +24,12 @@ interface UiState {
   rightTab: RightTab;
   setRightTab(t: RightTab): void;
   settingsOpen: boolean;
-  settingsTab: 'project' | 'providers' | 'system';
+  settingsTab: SettingsTab;
   theme: Theme;
   setWorkspace(w: Workspace): void;
   setLeftTab(t: LeftTab): void;
   toggleRight(): void;
-  openSettings(tab?: 'project' | 'providers' | 'system'): void;
+  openSettings(tab?: SettingsTab): void;
   closeSettings(): void;
   setTheme(t: Theme): void;
 }

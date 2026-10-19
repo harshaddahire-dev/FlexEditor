@@ -16,7 +16,8 @@
     "@fastify/websocket": "^11.0.1",
     "better-sqlite3": "^11.7.0",
     "fastify": "^5.2.0",
-    "@cutroom/agents": "workspace:*"
+    "@cutroom/agents": "workspace:*",
+    "@cutroom/plugin-sdk": "workspace:*"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

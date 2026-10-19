@@ -1,5 +1,6 @@
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export interface ServerConfig {
   host: string;
@@ -9,6 +10,8 @@ export interface ServerConfig {
   ffprobePath: string;
   /** Directory holding the built web app (production mode). */
   webDist: string | null;
+  /** Folder holding the built-in `skills/` and `plugins/` (the repository root); null to ship none. */
+  extensionsRoot: string | null;
 }
 
 /** Per-user app data directory (settings, recent projects). */
@@ -33,6 +36,7 @@ export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     ffmpegPath: process.env.FFMPEG_PATH ?? 'ffmpeg',
     ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',
     webDist: null,
+    extensionsRoot: path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', '..'),
     ...overrides,
   };
 }

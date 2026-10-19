@@ -4,7 +4,8 @@ import { equalsR, type Rational } from '@cutroom/core';
 import { api } from '../lib/api';
 import { FPS_PRESETS, formatFps } from '../lib/format';
 import { useApp } from '../store/app';
-import { useUi } from '../store/ui';
+import { type SettingsTab, useUi } from '../store/ui';
+import { ExtensionsTab } from './ExtensionsTab';
 import { ProvidersTab } from './ProvidersTab';
 import { Modal } from './ui';
 
@@ -140,14 +141,16 @@ export function SettingsDialog() {
   const { settingsOpen, settingsTab, closeSettings, openSettings } = useUi();
   return (
     <Modal open={settingsOpen} onOpenChange={(o) => (o ? openSettings() : closeSettings())} title="Settings" width={620}>
-      <Tabs.Root value={settingsTab} onValueChange={(v) => openSettings(v === 'system' ? 'system' : v === 'providers' ? 'providers' : 'project')}>
+      <Tabs.Root value={settingsTab} onValueChange={(v) => openSettings(v as SettingsTab)}>
         <Tabs.List className="tabs__list" style={{ marginBottom: 'var(--s-4)' }}>
           <Tabs.Trigger className="tabs__tab" value="project">Project</Tabs.Trigger>
           <Tabs.Trigger className="tabs__tab" value="providers">Providers</Tabs.Trigger>
+          <Tabs.Trigger className="tabs__tab" value="extensions">Plugins &amp; MCP</Tabs.Trigger>
           <Tabs.Trigger className="tabs__tab" value="system">System</Tabs.Trigger>
         </Tabs.List>
         <Tabs.Content value="project"><ProjectTab /></Tabs.Content>
         <Tabs.Content value="providers"><ProvidersTab /></Tabs.Content>
+        <Tabs.Content value="extensions"><ExtensionsTab /></Tabs.Content>
         <Tabs.Content value="system"><SystemTab /></Tabs.Content>
       </Tabs.Root>
     </Modal>

@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import type { AgentSettings, EditRequest, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
+import type { AgentSettings, EditRequest, McpServerInput, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
 import { findWhisper, type WhisperInstall } from './analysis/whisper';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
@@ -16,6 +16,7 @@ import { listDirectory } from './fsBrowse';
 import { JobQueue } from './jobs';
 import { EditRequestError } from './edit';
 import { AgentError, AgentService } from './agent/service';
+import { ExtensionError, ExtensionService } from './extensions';
 import { ProviderError, ProviderService } from './providers';
 import { ProjectError, ProjectManager } from './project';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from './security';
@@ -27,6 +28,7 @@ export interface BuiltApp {
   app: FastifyInstance;
   agent: AgentService;
   providers: ProviderService;
+  extensions: ExtensionService;
   manager: ProjectManager;
   jobs: JobQueue;
   appDb: AppDb;
@@ -50,6 +52,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   const appDb = new AppDb(path.join(config.dataDir, 'app.sqlite'));
   const jobs = new JobQueue(options.jobConcurrency ?? 2);
   const providers = new ProviderService(appDb, path.join(config.dataDir, 'secret.key'));
+  const extensions = new ExtensionService({ dataDir: config.dataDir, builtinRoot: config.extensionsRoot, projectFolder: () => manager.projectFolder });
   const whisper = options.whisper ?? (() => findWhisper(config.dataDir));
   const manager = new ProjectManager({
     whisper,
@@ -74,6 +77,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     }
     if (err instanceof AgentError) return reply.code(err.status).send({ error: err.code, message: err.message });
+    if (err instanceof ExtensionError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof ProviderError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof EditRequestError) return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     if (err instanceof UnsafePathError) return reply.code(400).send({ error: 'unsafe_path', message: err.message });
@@ -103,8 +107,10 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       },
     },
     providers,
+    extensions,
     (e) => broadcast(e),
   );
+  extensions.start();
   jobs.on('update', (job) => broadcast({ type: 'job', job }));
   manager.on('media', (media) => broadcast({ type: 'media', media }));
   manager.on('mediaRemoved', (mediaId) => broadcast({ type: 'mediaRemoved', mediaId }));
@@ -207,6 +213,39 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     async (req) => providers.store.setAgent(req.body),
   );
 
+
+  /* ---- skills, plugins, MCP servers (secrets are write-only here too) ---- */
+  const mcpBody = {
+    type: 'object',
+    properties: {
+      id: { type: 'string' },
+      name: { type: 'string' },
+      transport: { type: 'string', enum: ['stdio', 'http'] },
+      command: { type: 'string' },
+      args: { type: 'array', items: { type: 'string' } },
+      url: { type: 'string' },
+      env: { type: 'object', additionalProperties: { type: 'string' } },
+      headers: { type: 'object', additionalProperties: { type: 'string' } },
+      enabled: { type: 'boolean' },
+    },
+    required: ['name', 'transport'],
+  } as const;
+  app.get('/api/extensions', async () => {
+    await extensions.refreshSkills();
+    return extensions.info();
+  });
+  app.post('/api/extensions/reload', async () => {
+    await extensions.reload();
+    await extensions.settled();
+    return extensions.info();
+  });
+  app.put<{ Params: { name: string }; Body: { enabled: boolean } }>('/api/extensions/skills/:name', async (req) => (extensions.setSkillEnabled(req.params.name, !!req.body.enabled), extensions.info()));
+  app.put<{ Params: { id: string }; Body: { enabled: boolean } }>('/api/extensions/plugins/:id', async (req) => (extensions.setPluginEnabled(req.params.id, !!req.body.enabled), extensions.info()));
+  app.post<{ Body: McpServerInput }>('/api/extensions/mcp', { schema: { body: mcpBody } }, async (req, reply) => reply.code(201).send(extensions.upsertMcp({ ...req.body, id: undefined })));
+  app.put<{ Params: { id: string }; Body: McpServerInput }>('/api/extensions/mcp/:id', { schema: { body: mcpBody } }, async (req) => extensions.upsertMcp({ ...req.body, id: req.params.id }));
+  app.post<{ Params: { id: string }; Body: { enabled: boolean } }>('/api/extensions/mcp/:id/enabled', async (req) => extensions.setMcpEnabled(req.params.id, !!req.body.enabled));
+  app.post<{ Params: { id: string } }>('/api/extensions/mcp/:id/test', async (req) => extensions.retryMcp(req.params.id));
+  app.delete<{ Params: { id: string } }>('/api/extensions/mcp/:id', async (req) => (extensions.removeMcp(req.params.id), { ok: true }));
 
   /* ---- agents ---- */
   app.get('/api/agent/chat', async () => agent.state());
@@ -441,9 +480,10 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   }
 
   app.addHook('onClose', async () => {
+    extensions.close();
     await manager.close();
     appDb.close();
   });
 
-  return { app, manager, jobs, appDb, providers, agent };
+  return { app, manager, jobs, appDb, providers, agent, extensions };
 }

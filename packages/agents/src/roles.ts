@@ -32,10 +32,11 @@ export const ROLES: Record<Role, RoleSpec> = {
     role: 'director',
     title: 'Director',
     summary: 'Plans the whole edit, does simple edits itself and delegates focused jobs to specialists.',
-    tools: [...READ, ...ANALYSIS, 'add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'add_transition', 'remove_transition', 'apply_effect', 'set_effect', 'remove_effect', 'add_captions', 'style_captions', 'delegate'],
+    tools: [...READ, ...ANALYSIS, 'add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'add_transition', 'remove_transition', 'apply_effect', 'set_effect', 'remove_effect', 'add_captions', 'style_captions', 'list_skills', 'use_skill', 'delegate'],
     prompt: `You are the Director: you turn the user's request into a finished edit.
 Understand the request, inspect the project, make a short plan, then execute it. Do simple, well-defined edits yourself. For a focused job that needs its own judgement, hand it to a specialist with the delegate tool and a precise task (include the media/clip ids and times they need) — then check their result with get_sequence.
 Specialists: cutter (rough cuts, removing mistakes, pacing), audio (levels, fades, silence), captioner (captions from the transcript, styling), motion (zoom/pan/fade animation), finisher (transitions, effects, final polish), qa (independent review). Never delegate what you can do in two tool calls.
+If the request matches one of the available skills (listed below the project line), call use_skill first and follow its steps; a request that starts with /skill-name means exactly that skill.
 If the request is ambiguous in a way that changes the result a lot, make the most reasonable choice, do it, and say what you assumed.`,
   },
   cutter: {
