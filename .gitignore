@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+.cutroom/
+*.tsbuildinfo
+.DS_Store
+test-results/
+playwright-report/
+.vite/
+.env
+.env.*
+!.env.example
+.fixtures/
+e2e/.tmp/

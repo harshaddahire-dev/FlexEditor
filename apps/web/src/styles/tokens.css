@@ -1,0 +1,66 @@
+/* Design tokens. Dark is the default; light is fully tokenised below. */
+:root,
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg-0: #0b0c0e; /* app background */
+  --bg-1: #121417; /* panels */
+  --bg-2: #181b1f; /* raised / inputs */
+  --bg-3: #20242a; /* hover */
+  --line: #2a2f36; /* borders (1px, never heavy shadows) */
+  --text-1: #e7e9ec;
+  --text-2: #a4abb4;
+  --text-3: #6b737d;
+  --accent: #4c8dff; /* selection / focus */
+  --accent-soft: rgb(76 141 255 / 0.14);
+  --playhead: #ff5436;
+  --success: #3dbe8b;
+  --warn: #e8b33a;
+  --danger: #f0524f;
+  --clip-video: #34588c;
+  --clip-audio: #2f7a5c;
+  --clip-caption: #8c7330;
+  --clip-graphics: #6e4e99;
+  --clip-agent: #4c8dff;
+  --scrim: rgb(5 6 8 / 0.62);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --bg-0: #eef0f3;
+  --bg-1: #f7f8fa;
+  --bg-2: #ffffff;
+  --bg-3: #e8ebef;
+  --line: #d3d8df;
+  --text-1: #14171a;
+  --text-2: #4a525c;
+  --text-3: #79818b;
+  --accent: #2468e0;
+  --accent-soft: rgb(36 104 224 / 0.12);
+  --playhead: #e03c1f;
+  --success: #1f9a6b;
+  --warn: #b27d0a;
+  --danger: #d23b38;
+  --scrim: rgb(20 23 26 / 0.4);
+}
+
+:root {
+  /* 4px spacing grid */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --ctl-h: 28px;
+  --track-h: 32px;
+  --topbar-h: 40px;
+  --splitter: 4px;
+  --font-ui: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --t-fast: 120ms;
+  --t-med: 160ms;
+}
