@@ -8,14 +8,12 @@ import {
   EditError,
   type HistoryState,
   type Media,
-  type MediaRef,
   type Origin,
   type Sequence,
   type SnapshotInfo,
-  type Timebase,
   type Transaction,
   type TransactionInfo,
-  tbSecondsToTicks,
+  mediaRef,
 } from '@cutroom/core';
 
 /** A rejected edit request: which operation failed and why, in a form an agent can act on. */
@@ -29,18 +27,6 @@ export class EditRequestError extends Error {
     super(message);
     this.name = 'EditRequestError';
   }
-}
-
-/** What the engine needs to know about a media file, expressed in the sequence's ticks. */
-export function mediaRef(m: Media, tb: Timebase): MediaRef {
-  const isImage = m.type === 'image';
-  return {
-    id: m.id,
-    kind: m.type,
-    duration: isImage ? null : tbSecondsToTicks(m.duration, tb, 'floor'),
-    hasVideo: m.type === 'video' || isImage,
-    hasAudio: !!m.audio,
-  };
 }
 
 const info = (t: Transaction): TransactionInfo => ({ id: t.id, label: t.label, origin: t.origin, revision: t.revision, at: t.at, opCount: t.ops.length });

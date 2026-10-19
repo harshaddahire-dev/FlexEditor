@@ -1,4 +1,5 @@
-import type { CSSProperties } from 'react';
+import { type CSSProperties, useEffect } from 'react';
+import { startTransport } from '../lib/transport';
 import { usePersistedSize } from '../lib/layout';
 import { useUi } from '../store/ui';
 import { Splitter } from './Splitter';
@@ -6,7 +7,9 @@ import { SettingsDialog } from './SettingsDialog';
 import { TopBar } from './TopBar';
 import { Toasts } from './Toasts';
 import { Viewer } from './Viewer';
-import { AgentPanel, LeftPanel, TimelinePanel } from './Panels';
+import { AgentPanel, LeftPanel } from './Panels';
+import { KeyboardLayer } from './CommandPalette';
+import { TimelinePanel } from './Timeline';
 
 // Bounds are functions so they track the window size.
 const vh = () => window.innerHeight;
@@ -16,6 +19,7 @@ const TIMELINE = { min: () => Math.round(vh() * 0.38), max: () => Math.round(vh(
 
 export function Workspace() {
   const rightOpen = useUi((s) => s.rightOpen);
+  useEffect(() => startTransport(), []);
   const [left, setLeft] = usePersistedSize('leftW', 280, LEFT.min, LEFT.max);
   const [right, setRight] = usePersistedSize('rightW', 380, RIGHT.min, RIGHT.max);
   const [timeline, setTimeline] = usePersistedSize('timelineH', Math.round(vh() * 0.4), TIMELINE.min, TIMELINE.max);
@@ -39,6 +43,7 @@ export function Workspace() {
       </div>
       <Toasts />
       <SettingsDialog />
+      <KeyboardLayer />
     </div>
   );
 }

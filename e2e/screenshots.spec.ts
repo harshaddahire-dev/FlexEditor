@@ -1,12 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
+import { resetProject } from './helpers';
 
 /** Not an assertion suite — captures the main states to e2e/.tmp/shots for design review. */
 const out = path.resolve(import.meta.dirname, '.tmp/shots');
 
 test('capture screenshots @shots', async ({ page, request }) => {
-  await request.post('/api/project/close');
+  await resetProject(request);
   fs.mkdirSync(out, { recursive: true });
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'Cutroom' })).toBeVisible();
@@ -22,6 +23,21 @@ test('capture screenshots @shots', async ({ page, request }) => {
   await bin.getByRole('option', { name: /phone-vertical/ }).click();
   await page.screenshot({ path: path.join(out, '3-workspace-selected.png') });
 
+  // a populated timeline
+  await bin.getByRole('option', { name: /interview/ }).click();
+  await page.keyboard.press(',');
+  await bin.getByRole('option', { name: /phone-vertical/ }).click();
+  await page.keyboard.press(',');
+  await bin.getByRole('option', { name: /music/ }).click();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('Shift+ArrowRight');
+  await page.keyboard.press('.');
+  await page.keyboard.press('m');
+  await page.keyboard.press('Shift+c');
+  await page.keyboard.press('Shift+z');
+  await page.waitForTimeout(400);
+  await page.getByRole('option', { name: /interview/ }).first().click();
+  await page.screenshot({ path: path.join(out, '7-timeline.png') });
   await page.getByRole('radio', { name: 'List view' }).click();
   await page.screenshot({ path: path.join(out, '4-list-view.png') });
 

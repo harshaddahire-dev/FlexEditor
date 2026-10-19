@@ -2,7 +2,9 @@ import { AlertTriangle } from 'lucide-react';
 import type { Media } from '@cutroom/core';
 import { mediaUrl } from '../lib/api';
 import { formatBytes, formatDuration, formatFps } from '../lib/format';
+import { framesToTimecode, frameTicks } from '@cutroom/core';
 import { useApp } from '../store/app';
+import { useTimeline } from '../store/timeline';
 import { ICON } from './ui';
 
 function info(m: Media, fps: Parameters<typeof formatDuration>[1]): [string, string][] {
@@ -27,6 +29,8 @@ function info(m: Media, fps: Parameters<typeof formatDuration>[1]): [string, str
 /** Centre panel. Until sequences exist it shows the selected media's poster and metadata. */
 export function Viewer() {
   const project = useApp((s) => s.project);
+  const seq = useApp((s) => s.sequence);
+  const playhead = useTimeline((s) => s.playhead);
   const media = useApp((s) => (s.selectedMediaId ? s.media[s.selectedMediaId] : undefined));
   if (!project) return null;
   const fps = project.settings.fps;
@@ -37,7 +41,7 @@ export function Viewer() {
         <span className="panel__title">Viewer</span>
         <span className="muted">{media ? media.name : ''}</span>
         <span className="spacer" />
-        <span className="viewer__tc" aria-label="Timecode">{formatDuration({ num: 0, den: 1 }, fps)}</span>
+        <span className="viewer__tc" aria-label="Timecode">{seq ? framesToTimecode(Math.round(playhead / frameTicks(seq.timebase)), seq.timebase.fps) : formatDuration({ num: 0, den: 1 }, fps)}</span>
       </div>
       <div className="viewer">
         <div className="viewer__stage">

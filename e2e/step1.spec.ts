@@ -1,10 +1,11 @@
+import { resetProject } from './helpers';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 
 const footage = () => process.env.E2E_FOOTAGE!;
 
 // The server keeps its project open across page loads (that is the feature), so start each test from a closed project.
 test.beforeEach(async ({ request }) => {
-  await request.post('/api/project/close');
+  await resetProject(request);
 });
 
 /** Fail the test on any console error or unhandled page error. */

@@ -1,7 +1,5 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import { PanelRightClose } from 'lucide-react';
-import { formatFps } from '../lib/format';
-import { useApp } from '../store/app';
 import { useUi, type LeftTab } from '../store/ui';
 import { MediaBin } from './MediaBin';
 import { ICON, Tip } from './ui';
@@ -31,27 +29,6 @@ export function LeftPanel() {
         ))}
       </Tabs.Root>
     </aside>
-  );
-}
-
-export function TimelinePanel() {
-  const project = useApp((s) => s.project);
-  if (!project) return null;
-  const s = project.settings;
-  return (
-    <section className="panel panel--timeline" aria-label="Timeline">
-      <div className="panel__head">
-        <span className="panel__title">Timeline</span>
-        <span className="spacer" />
-        <Tip label="Sequence settings (change in Settings → Project)">
-          <span className="mono muted">{s.width}×{s.height} · {formatFps(s.fps)} fps · {s.sampleRate / 1000} kHz</span>
-        </Tip>
-      </div>
-      <div className="empty">
-        <p>No sequence yet.</p>
-        <p className="faint">The multi-track timeline arrives in the next build step.</p>
-      </div>
-    </section>
   );
 }
 

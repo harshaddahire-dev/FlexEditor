@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from 'react';
+import { useMemo, useRef, useState, type DragEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
 import { AlertTriangle, Film, FolderUp, Image as ImageIcon, LayoutGrid, List, MoreHorizontal, Music, Plus, Search, X } from 'lucide-react';
@@ -7,7 +7,9 @@ import { mediaUrl } from '../lib/api';
 import { collectDropped, collectFromInput } from '../lib/dropped';
 import { describeVideo, formatDuration } from '../lib/format';
 import { jobsForMedia, useApp } from '../store/app';
+import { placeSelectedMedia } from '../lib/actions';
 import { RelinkDialog } from './RelinkDialog';
+import { MEDIA_MIME } from './Timeline';
 import { StatusDots } from './StatusDots';
 import { ICON, Tip } from './ui';
 
@@ -68,7 +70,7 @@ interface ItemProps {
 function Tile({ media, selected, duration, progress, onSelect, onRelink }: ItemProps) {
   const warn = media.warnings.length > 0;
   return (
-    <div className="tile" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
+    <div className="tile" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
       <div className="tile__thumb">
         {media.status.poster === 'done' ? (
           <img src={mediaUrl(media.id, 'poster', media.mtimeMs)} alt="" draggable={false} />
@@ -97,7 +99,7 @@ function Tile({ media, selected, duration, progress, onSelect, onRelink }: ItemP
 
 function Row({ media, selected, duration, progress, onSelect, onRelink }: ItemProps) {
   return (
-    <div className="rowitem" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
+    <div className="rowitem" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
       <span style={{ color: media.missing ? 'var(--danger)' : 'var(--text-3)', display: 'inline-flex' }}><TypeIcon type={media.type} /></span>
       <span className="rowitem__name" title={`${media.path}${metaLine(media) ? ` — ${metaLine(media)}` : ''}`}>{media.name}</span>
       <span className="mono faint" style={media.missing ? { color: 'var(--danger)' } : undefined}>{media.missing ? 'missing' : media.type === 'image' ? '' : duration}</span>
@@ -121,7 +123,6 @@ export function MediaBin() {
   const dragDepth = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
 
   const items = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -139,18 +140,6 @@ export function MediaBin() {
     setDragging(false);
     const pending = await collectDropped(e.dataTransfer);
     if (pending.length) void uploadFiles(pending);
-  };
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    const keys = view === 'grid' ? ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'] : ['ArrowUp', 'ArrowDown'];
-    if (!keys.includes(e.key)) return;
-    const idx = items.findIndex((m) => m.id === selectedId);
-    const back = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
-    const next = items[Math.min(items.length - 1, Math.max(0, idx < 0 ? 0 : idx + (back ? -1 : 1)))];
-    if (!next) return;
-    e.preventDefault();
-    selectMedia(next.id);
-    listRef.current?.querySelector<HTMLElement>(`[data-media-id="${next.id}"]`)?.focus();
   };
 
   const setViewMode = (v: 'grid' | 'list') => {
@@ -202,7 +191,7 @@ export function MediaBin() {
       <input ref={fileInput} type="file" multiple hidden accept="video/*,audio/*,image/*,.mkv,.mxf,.mts,.m2ts,.ts,.flac,.opus,.aif,.aiff" onChange={(e) => { const p = collectFromInput(e.target.files); e.target.value = ''; if (p.length) void uploadFiles(p); }} />
       <input ref={folderInput} type="file" hidden multiple {...({ webkitdirectory: '' } as object)} onChange={(e) => { const p = collectFromInput(e.target.files); e.target.value = ''; if (p.length) void uploadFiles(p); }} />
 
-      <div className={`bin__scroll ${view === 'list' ? 'bin__list-scroll' : ''}`} ref={listRef} onKeyDown={onKeyDown}>
+      <div className={`bin__scroll ${view === 'list' ? 'bin__list-scroll' : ''}`}>
         {total === 0 ? (
           <div className="empty">
             <p>No media in this project yet.</p>

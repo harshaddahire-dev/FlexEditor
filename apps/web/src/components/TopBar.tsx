@@ -18,6 +18,10 @@ export function TopBar() {
   const closeProject = useApp((s) => s.closeProject);
   const rescan = useApp((s) => s.rescan);
   const { workspace, setWorkspace, rightOpen, toggleRight, openSettings } = useUi();
+  const history = useApp((s) => s.history);
+  const { undo, redo } = useApp();
+  const lastUndo = history?.undo[history.undo.length - 1]?.label;
+  const nextRedo = history?.redo[history.redo.length - 1]?.label;
 
   return (
     <header className="topbar">
@@ -45,11 +49,11 @@ export function TopBar() {
       </Tip>
 
       <span className="topbar__sep" />
-      <Tip label="Nothing to undo yet">
-        <button className="btn btn--ghost btn--icon" aria-label="Undo" disabled><Undo2 {...ICON} /></button>
+      <Tip label={history?.canUndo ? `Undo ${lastUndo ?? ''}` : 'Nothing to undo'}>
+        <button className="btn btn--ghost btn--icon" aria-label="Undo" disabled={!history?.canUndo} onClick={() => void undo()}><Undo2 {...ICON} /></button>
       </Tip>
-      <Tip label="Nothing to redo yet">
-        <button className="btn btn--ghost btn--icon" aria-label="Redo" disabled><Redo2 {...ICON} /></button>
+      <Tip label={history?.canRedo ? `Redo ${nextRedo ?? ''}` : 'Nothing to redo'}>
+        <button className="btn btn--ghost btn--icon" aria-label="Redo" disabled={!history?.canRedo} onClick={() => void redo()}><Redo2 {...ICON} /></button>
       </Tip>
 
       <span className="spacer" />
