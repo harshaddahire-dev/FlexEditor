@@ -1,13 +1,39 @@
 # Cutroom
 
-A local-first, browser-based non-linear video editor where AI agents perform the editing.
-Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001`
-that owns the project folder, FFmpeg, the analysis cache and (later) all model calls.
+A local-first, browser-based non-linear video editor where **AI agents perform the editing**.
+Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001` that owns the project folder,
+FFmpeg, the analysis cache, your model keys and every model call. Your footage is never uploaded anywhere.
 
-> **Status: build steps 1–6 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
-> undo/redo, a canvas timeline, a WebCodecs + WebGL program monitor and a Web Audio mix are working and tested —
-> including an automated proof that picture and sound stay on the same instant through split, trim, ripple and
-> speed edits. Media intelligence (waveforms, filmstrip, loudness, silences, scenes, beats, transcript) is in too. Agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
+You describe the edit ("remove the silences", "make a 30-second highlight", `/youtube-retention-cut`) and watch the timeline change.
+A **Director** plans and delegates to specialists (Cutter, Audio, Captioner, Motion, Finisher, QA); every change is a validated,
+undoable engine operation, grouped so a whole agent run can be kept or undone in one click, and reviewed as a ghost diff on the timeline.
+
+> **All ten build steps are complete and tested** — see [Tests](#tests) and the [Roadmap](#roadmap) for what is covered and how.
+> Picture and sound are proven to stay on the same instant (0 frames of offset) from import through every edit, through the
+> browser export path and through the FFmpeg export path.
+
+```
+┌────────────────────────────── Browser · apps/web ──────────────────────────────────┐
+│ React UI · Zustand stores (sequence mirror kept current with Immer patches)         │
+│ Timeline (Canvas2D) · Program monitor: WebCodecs decode → WebGL2 compositor          │
+│   (transform · effects · transitions · captions)                                     │
+│ Audio: planAudio → baked 0.5 s slices → AudioContext (live) / OfflineAudioContext    │
+│ Exporter: same compositor → VideoEncoder → encoded chunks ─────────────┐             │
+└───────────────▲───────────────────────────┬──────────────────────────────┼───────────┘
+   REST + WebSocket: edits, patches, jobs,   │ agent events, export         │ upload (audio WAV, video)
+┌───────────────┴───────────────────────────▼──────────────────────────────▼───────────┐
+│ Server · apps/server (Fastify, better-sqlite3)                                       │
+│  ProjectManager ─ EditSession ─ packages/core: time model · edit engine · history    │
+│  Media pipeline: ffprobe → CFR proxies → waveform · loudness · silences · beats ·     │
+│                  scenes · filmstrip · whisper.cpp transcript                         │
+│  Providers: AES-256-GCM key store · OpenAI-compatible · Anthropic · Gemini adapters   │
+│  AgentService ─ packages/agents: Director + specialists, typed tools, QA loop         │
+│  Extensions: skills (SKILL.md) · plugins (packages/plugin-sdk) · MCP client           │
+│  ExportService: FFmpeg filtergraph renderer · mux · SRT/VTT · job queue               │
+└───────────────────────────────────────┬───────────────────────────────────────────────┘
+                                        │ spawn
+                              FFmpeg · ffprobe · whisper.cpp
+```
 
 ## Requirements
 
@@ -129,6 +155,75 @@ Each specialist has its own prompt and only the tools it needs.
 - **Tested without a model.** `packages/agents` is exercised with a scripted stand-in for the model against the real edit engine;
   the server and e2e suites drive full runs through a fake OpenAI-compatible endpoint.
 
+## Motion, effects, transitions and captions
+
+- **Keyframes.** Every Inspector value has a diamond: click to add a keyframe at the playhead, and the value animates between
+  keyframes (linear, hold or an ease curve — the diamond cycles through them). Position, scale, rotation, anchor, opacity, crop,
+  audio gain and every effect parameter can be animated. Curves are the same cubic Béziers in the engine, the monitor and the exporters.
+- **Effects** (WebGL shader passes, in the order listed on the clip): Color (exposure, brightness, contrast, saturation, temperature,
+  tint), Look (warm film, teal & orange, bleach bypass, noir, faded), Gaussian blur, Sharpen, Vignette, Sepia, Pixelate. Drag from the
+  Effects tab or use the Inspector; agents use `apply_effect` / `set_effect`.
+- **Transitions**: dissolve, dip to black / white, four wipes, slide, push (both ways), zoom and iris — written as small GLSL functions
+  in the gl-transitions convention (`transition(uv)`), drawn between the two clips with their real handle media, so footage keeps
+  moving through the transition. A cut without enough spare footage is refused with the reason.
+- **Captions** are generated from the transcript (`captionsForClip`): grouped by sentence, pause and line length, mapped through
+  trims and speed, snapped to frames and never overlapping. Five styles — Clean, Bold pop (spoken word highlighted), Minimal, Boxed,
+  Karaoke — are drawn on a canvas layer by the compositor, so what you see is what is burned in. Edit the text in the Captions tab or the
+  Inspector; export as burned-in, as `.srt`/`.vtt`, or both.
+
+## Skills, plugins and MCP
+
+**Skills** are step-by-step recipes the Director follows. A skill is a folder with a `SKILL.md`:
+
+```markdown
+---
+name: podcast-cleanup
+description: Clean up a conversation or podcast recording — trim long pauses, balance speakers, normalise loudness.
+---
+1. get_overview; get_loudness and get_silences for each media item.
+2. Shorten pauses longer than 1.2 s to about 0.6 s with remove_range …
+```
+
+Eight ship with Cutroom (`skills/`): YouTube retention cut, podcast cleanup, short-form vertical reel, highlight reel, beat-synced
+montage, interview rough cut, loudness master, chapter markers. Add your own in `<app data>/skills/` or `<project>/.cutroom/skills/`
+(a project skill with the same name wins). Run one from the **Skills** tab, or type `/` in the Agent tab to pick from a menu.
+
+**Plugins** are folders with a `plugin.json` and an ES module that `export default definePlugin({ id, name, version, tools, skills })`
+(`packages/plugin-sdk`). Tools declare a zod schema or plain JSON Schema and receive a context with the sequence, the media, the
+analysis and an `applyOps()` that goes through the same validated, undoable engine as everything else. `plugins/pacing-tools` is a
+working example.
+
+**MCP servers** (stdio commands or streamable-HTTP URLs) are added in Settings → *Plugins & MCP*; their tools show up next to the
+built-in ones. Environment variables and headers are encrypted at rest like provider keys and are never sent back to the browser.
+
+Plugins and MCP servers run code outside Cutroom with your permissions, so their tools are offered to the agents **only in Full access
+mode**, never to the specialists, and each one can be switched off.
+
+## Exporting
+
+**Render** (top right) writes to `<project>/exports/`:
+
+| Preset | Video | Audio |
+|---|---|---|
+| H.264 · MP4 | x264 / browser H.264, Rec.709 tagged | AAC 320 k |
+| VP9 · WebM | libvpx-vp9 / browser VP9 | Opus 192 k |
+| ProRes 422 HQ · MOV | `prores_ks`, 10-bit 4:2:2 | 24-bit PCM |
+| Audio only · WAV | — | 24-bit PCM |
+
+Ranges (whole timeline or In → Out), half-size output, captions (burned in, `.srt` + `.vtt`, both, none) and a cancel button are in the
+dialog. Two renderers produce the picture; the **audio is always mixed in the browser** with the playback graph through an
+`OfflineAudioContext` (so export is the playback mix, sample for sample) and muxed on the server:
+
+- **Browser (WebCodecs)** — the same compositor as the monitor renders each frame from the *original* files (or from proxies for a
+  fast draft), `VideoEncoder` encodes it, the chunks stream to the server and FFmpeg only muxes (`-c copy`).
+- **FFmpeg** — the server builds one `filter_complex` from the sequence (trim, speed, transform, keyframed expressions, opacity, crop,
+  effects, `xfade` transitions, ASS captions) and renders from the originals. Used for ProRes and whenever the browser cannot decode a
+  source (for example H.264 in a browser without it) or encode the target.
+
+*Automatic* picks for you and says why. The two engines are checked against each other in the e2e suite on a composed scene
+(stacking, transform, opacity, an effect, a dissolve). The FFmpeg engine approximates a few effects and transitions (vignette, teal &
+orange, pixelate, dip-to-black timing, iris/zoom) and lists exactly which ones in the result.
+
 ## Repository layout
 
 ```
@@ -136,8 +231,10 @@ apps/web         Vite + React 18 + TypeScript (strict), Zustand, Radix primitive
 apps/server      Fastify + WebSocket + better-sqlite3, FFmpeg/ffprobe orchestration, job queue
 packages/core    Time model, timecode, media/project types, protocol types (shared by web + server)
 packages/agents  Director + specialists + typed tools + runtime (model-agnostic, tested with a scripted model)
-packages/plugin-sdk (step 8)  Plugin / skill SDK
-e2e              Playwright end-to-end tests
+packages/plugin-sdk  Plugin and skill SDK (definePlugin, SKILL.md parser, tool adapters)
+skills/          The built-in skills (SKILL.md)
+plugins/         Example plugin(s)
+e2e              Playwright end-to-end tests (+ opt-in screenshot specs tagged @shots)
 ```
 
 ## Tests
