@@ -3,6 +3,7 @@ import { PanelRightClose } from 'lucide-react';
 import { useUi, type LeftTab, type RightTab } from '../store/ui';
 import { AgentSetup } from './AgentSetup';
 import { Inspector } from './Inspector';
+import { CaptionsPanel, EffectsPanel, TransitionsPanel } from './LibraryPanels';
 import { MediaBin } from './MediaBin';
 import { TranscriptPanel } from './TranscriptPanel';
 import { ICON, Tip } from './ui';
@@ -28,7 +29,7 @@ export function LeftPanel() {
         </Tabs.List>
         {TABS.map((t) => (
           <Tabs.Content key={t.id} className="tabs__content" value={t.id}>
-            {t.id === 'media' ? <MediaBin /> : t.id === 'transcript' ? <TranscriptPanel /> : <div className="empty"><p>{t.empty}</p></div>}
+            {t.id === 'media' ? <MediaBin /> : t.id === 'transcript' ? <TranscriptPanel /> : t.id === 'captions' ? <CaptionsPanel /> : t.id === 'effects' ? <EffectsPanel /> : t.id === 'transitions' ? <TransitionsPanel /> : <div className="empty"><p>{t.empty}</p></div>}
           </Tabs.Content>
         ))}
       </Tabs.Root>

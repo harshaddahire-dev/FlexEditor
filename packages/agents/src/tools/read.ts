@@ -154,6 +154,18 @@ export const readTools: ToolDef[] = [
     run: (ctx, a) => analysisOf(ctx, a.mediaId, 'loudness'),
   }),
   defineTool({
+    name: 'get_captions',
+    description: 'The captions on the timeline: id, start/end (seconds), text and style.',
+    schema: z.object({}),
+    scope: 'read',
+    run: (ctx) => {
+      const seq = ctx.host.sequence();
+      const caps = seq.tracks.filter((t) => t.kind === 'caption').flatMap((t) => Object.values(t.items)).filter((i) => i.kind === 'caption').sort((a, b) => a.start - b.start);
+      const view = caps.map((c) => ({ id: c.id, start: toSeconds(c.start, seq.timebase), end: toSeconds(c.start + c.duration, seq.timebase), text: c.kind === 'caption' ? c.words.map((w) => w.text).join(' ') : '', style: c.kind === 'caption' ? c.styleId : '' }));
+      return cap(view, 200);
+    },
+  }),
+  defineTool({
     name: 'validate',
     description: 'Audit the whole sequence: overlaps, gaps, flash frames (very short clips), A/V desync, audio clicks, broken transitions.',
     schema: z.object({}),

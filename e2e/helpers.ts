@@ -78,3 +78,9 @@ export async function openFootageAndInsert(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Program', exact: true }).click();
   await proxyReady(page);
 }
+
+/** Like resetProject, for another footage folder. */
+export async function resetFolder(request: APIRequestContext, dir: string): Promise<void> {
+  await request.post('/api/project/close');
+  await fs.rm(path.join(dir, '.cutroom'), { recursive: true, force: true });
+}

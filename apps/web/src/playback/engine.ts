@@ -1,10 +1,11 @@
 import { create } from 'zustand';
-import type { Media, Sequence } from '@cutroom/core';
+import { type Clip, type Media, type Sequence, type Transform, defaultTransform, resolveEffectParams } from '@cutroom/core';
 import { mediaUrl } from '../lib/api';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
-import { Compositor, type Drawable, type Layer } from './compositor';
-import { activeVideoClips, layerMatrix, resolveTransform, sourceTicksAt } from './layers';
+import { Compositor, type Drawable, type Layer, type RenderItem } from './compositor';
+import { CaptionPainter } from './captions';
+import { activeCaptions, layerMatrix, planFrame, resolveTransform, sourceTicksAt } from './layers';
 import { VideoSource } from './videoSource';
 
 export interface ViewerStatus {
@@ -144,6 +145,46 @@ export class PlaybackEngine {
     return ready;
   }
 
+  /** Live edits from the on-canvas handles: shown immediately, committed to the sequence when the drag ends. */
+  private readonly overrides = new Map<string, Partial<Transform>>();
+
+  setOverride(clipId: string, t: Partial<Transform> | null): void {
+    if (t) this.overrides.set(clipId, t);
+    else this.overrides.delete(clipId);
+    this.request();
+  }
+
+  private captions: CaptionPainter | null = null;
+
+  /** Resolve one clip into a drawable layer at `ticks` (decoded frame or still, transform, keyframes, effects). */
+  private async layerFor(clip: Clip, ticks: number, seq: Sequence, media: Record<string, Media>, rate: number): Promise<{ layer: Layer; info: { clipId: string; mediaId: string; index: number } } | null> {
+    const m = media[clip.mediaId];
+    const pending = m && !m.missing ? this.source(m) : null;
+    if (!pending) return null;
+    const src = await pending;
+    const rel = ticks - clip.start;
+    let drawable: Drawable;
+    let index = 0;
+    let srcW: number;
+    let srcH: number;
+    if (src instanceof VideoSource) {
+      index = src.indexAtTicks(sourceTicksAt(clip, ticks), rate);
+      drawable = await src.frame(index);
+      srcW = (drawable as VideoFrame).displayWidth;
+      srcH = (drawable as VideoFrame).displayHeight;
+      src.prefetchAfter(index);
+    } else {
+      drawable = src;
+      srcW = src.width;
+      srcH = src.height;
+    }
+    const t = { ...resolveTransform(clip, rel), ...(this.overrides.get(clip.id) ?? {}) };
+    const fit = Math.min(seq.width / srcW, seq.height / srcH);
+    const effects = clip.effects.filter((e) => e.enabled).map((e) => ({ type: e.type, params: resolveEffectParams(e, clip, rel) }));
+    const layer: Layer = { source: drawable, srcW, srcH, matrix: layerMatrix(t, srcW, srcH, seq.width, seq.height), opacity: t.opacity, crop: t.crop, ...(effects.length ? { effects, pixelScale: 1 / fit } : {}) };
+    return { layer, info: { clipId: clip.id, mediaId: clip.mediaId, index } };
+  }
+
   private async draw(ticks: number): Promise<void> {
     const started = performance.now();
     const { sequence: seq, media } = useApp.getState();
@@ -158,42 +199,41 @@ export class PlaybackEngine {
 
     const rate = seq.timebase.rate;
     let waiting = 0;
-    const resolved = await Promise.all(
-      activeVideoClips(seq, ticks).map(async ({ clip }) => {
-        const m = media[clip.mediaId];
-        const pending = m && !m.missing ? this.source(m) : null;
-        if (!pending) {
+    const infos: Shown['layers'] = [];
+    const rendered = await Promise.all(
+      planFrame(seq, ticks).map(async (p): Promise<RenderItem | null> => {
+        if (p.kind === 'clip') {
+          const r = await this.layerFor(p.clip, ticks, seq, media, rate);
+          if (!r) return (waiting++, null);
+          infos.push(r.info);
+          return { kind: 'layer', layer: r.layer };
+        }
+        const [a, b] = await Promise.all([this.layerFor(p.from, ticks, seq, media, rate), this.layerFor(p.to, ticks, seq, media, rate)]);
+        if (!a || !b) {
           waiting++;
-          return null;
+          const only = a ?? b;
+          return only ? { kind: 'layer', layer: only.layer } : null;
         }
-        const src = await pending;
-        const rel = ticks - clip.start;
-        let drawable: Drawable;
-        let index = 0;
-        let srcW: number;
-        let srcH: number;
-        if (src instanceof VideoSource) {
-          index = src.indexAtTicks(sourceTicksAt(clip, ticks), rate);
-          drawable = await src.frame(index);
-          srcW = (drawable as VideoFrame).displayWidth;
-          srcH = (drawable as VideoFrame).displayHeight;
-          src.prefetchAfter(index);
-        } else {
-          drawable = src;
-          srcW = src.width;
-          srcH = src.height;
-        }
-        const t = resolveTransform(clip, rel);
-        const layer: Layer = { source: drawable, srcW, srcH, matrix: layerMatrix(t, srcW, srcH, seq.width, seq.height), opacity: t.opacity, crop: t.crop };
-        return { layer, info: { clipId: clip.id, mediaId: clip.mediaId, index } };
+        infos.push(a.info, b.info);
+        return { kind: 'transition', type: p.transition.type, progress: p.progress, from: a.layer, to: b.layer };
       }),
     );
 
     // A newer request arrived while decoding: it will paint instead.
     if (this.want !== null) return;
-    const ok = resolved.filter((r): r is NonNullable<typeof r> => r !== null);
-    comp.render(ok.map((r) => r.layer));
-    this.shown = { ticks, layers: ok.map((r) => r.info) };
+    const items = rendered.filter((r): r is RenderItem => r !== null);
+
+    // burned-in captions go on top as one more layer
+    const caps = activeCaptions(seq, ticks);
+    if (caps.length) {
+      this.captions ??= new CaptionPainter(seq.width, seq.height, () => seq.timebase.rate);
+      this.captions.resize(seq.width, seq.height);
+      this.captions.paint(caps.map(({ caption }) => ({ caption, t: ticks })));
+      items.push({ kind: 'layer', layer: { source: this.captions.canvas, version: this.captions.version, srcW: seq.width, srcH: seq.height, matrix: layerMatrix(defaultTransform(), seq.width, seq.height, seq.width, seq.height), opacity: 1, crop: { left: 0, right: 0, top: 0, bottom: 0 } } });
+    }
+
+    comp.render(items);
+    this.shown = { ticks, layers: infos.map((i) => i) };
     this.stats = { rendered: this.stats.rendered + 1, dropped: this.stats.dropped, lastMs: performance.now() - started };
     const st = useViewerStatus.getState();
     if (st.waiting !== waiting || st.error) useViewerStatus.setState({ waiting, error: null });

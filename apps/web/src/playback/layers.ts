@@ -1,4 +1,4 @@
-import { type Clip, type Sequence, type Transform, evaluateKeyframes, isClip, trackItems } from '@cutroom/core';
+import { type CaptionItem, type Clip, type Sequence, type Track, type Transform, type Transition, evaluateKeyframes, isCaption, isClip, itemEnd, trackItems, transitionSpan } from '@cutroom/core';
 
 /** Affine map from the unit square of a source frame to sequence pixels: x = a·u + c·v + e, y = b·u + d·v + f. */
 export type Affine = readonly [a: number, b: number, c: number, d: number, e: number, f: number];
@@ -74,6 +74,56 @@ export function activeVideoClips(seq: Sequence, ticks: number): ActiveLayer[] {
       if (ticks < item.start + item.duration) out.push({ clip: item, order });
     }
     order++;
+  }
+  return out;
+}
+
+
+export type PlanItem =
+  | { kind: 'clip'; clip: Clip; order: number }
+  | { kind: 'transition'; transition: Transition; from: Clip; to: Clip; progress: number; order: number };
+
+/**
+ * What to draw at `ticks`, bottom of the stack first. Within a transition's window the outgoing clip keeps playing past
+ * its end (into its tail handle) and the incoming one starts before its start (from its head handle); the pair becomes
+ * one transition item whose `progress` runs 0→1 across the window.
+ */
+export function planFrame(seq: Sequence, ticks: number): PlanItem[] {
+  const out: PlanItem[] = [];
+  let order = 0;
+  for (const track of seq.tracks) {
+    if (track.kind !== 'video' || track.muted) continue;
+    const inTransition = new Set<string>();
+    for (const tr of track.transitions) {
+      const a = track.items[tr.betweenClipIds[0]];
+      const b = track.items[tr.betweenClipIds[1]];
+      if (!a || !b || !isClip(a) || !isClip(b) || !a.enabled || !b.enabled) continue;
+      const [s, e] = transitionSpan(itemEnd(a), tr.duration, tr.alignment);
+      if (ticks >= s && ticks < e) {
+        out.push({ kind: 'transition', transition: tr, from: a, to: b, progress: e > s ? (ticks - s) / (e - s) : 1, order });
+        inTransition.add(a.id).add(b.id);
+      }
+    }
+    for (const item of trackItems(track)) {
+      if (!isClip(item) || !item.enabled || inTransition.has(item.id)) continue;
+      if (item.start > ticks) break;
+      if (ticks < itemEnd(item)) out.push({ kind: 'clip', clip: item, order });
+    }
+    order++;
+  }
+  return out;
+}
+
+/** Captions on screen at `ticks`, with the track they live on (lower tracks first). */
+export function activeCaptions(seq: Sequence, ticks: number): { caption: CaptionItem; track: Track }[] {
+  const out: { caption: CaptionItem; track: Track }[] = [];
+  for (const track of seq.tracks) {
+    if (track.kind !== 'caption' || track.muted) continue;
+    for (const item of trackItems(track)) {
+      if (!isCaption(item)) continue;
+      if (item.start > ticks) break;
+      if (ticks < itemEnd(item)) out.push({ caption: item, track });
+    }
   }
   return out;
 }

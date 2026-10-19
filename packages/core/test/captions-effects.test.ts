@@ -134,3 +134,15 @@ describe('captionsForClip — timing', () => {
     expect(vtt.startsWith('WEBVTT\n\n00:00:01.000 --> 00:00:03.000\nHello there, this is a test.')).toBe(true);
   });
 });
+
+describe('retimeWords', () => {
+  it('spreads edited text over the caption, in order, inside its bounds', async () => {
+    const { retimeWords } = await import('../src');
+    const w = retimeWords('one two three', 1000, 3000);
+    expect(w.map((x) => x.text)).toEqual(['one', 'two', 'three']);
+    expect(w[0]!.start).toBe(1000);
+    expect(w.at(-1)!.end).toBe(4000);
+    for (let i = 1; i < w.length; i++) expect(w[i]!.start).toBeGreaterThanOrEqual(w[i - 1]!.start);
+    expect(retimeWords('  ', 0, 100)).toEqual([]);
+  });
+});

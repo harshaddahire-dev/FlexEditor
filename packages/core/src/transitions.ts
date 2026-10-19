@@ -5,7 +5,8 @@ export interface TransitionDef {
   duration: number;
   /**
    * GLSL ES 3.00 body: `vec4 transition(vec2 uv)` using `getFromColor(uv)`, `getToColor(uv)` and `progress` (0→1) —
-   * the gl-transitions convention, so more can be dropped in. Colours are premultiplied.
+   * the gl-transitions convention, so more can be dropped in. Colours are premultiplied; `uv` has its origin at the
+   * bottom-left (y up), as in OpenGL, so "up" wipes grow from y = 0.
    */
   glsl: string;
 }
@@ -27,8 +28,8 @@ export const TRANSITIONS: TransitionDef[] = [
   },
   { type: 'wipe-left', label: 'Wipe left', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { float edge = 1.0 - progress; return uv.x > edge ? getToColor(uv) : getFromColor(uv); }' },
   { type: 'wipe-right', label: 'Wipe right', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { return uv.x < progress ? getToColor(uv) : getFromColor(uv); }' },
-  { type: 'wipe-up', label: 'Wipe up', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { return uv.y > 1.0 - progress ? getToColor(uv) : getFromColor(uv); }' },
-  { type: 'wipe-down', label: 'Wipe down', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { return uv.y < progress ? getToColor(uv) : getFromColor(uv); }' },
+  { type: 'wipe-up', label: 'Wipe up', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { return uv.y < progress ? getToColor(uv) : getFromColor(uv); }' },
+  { type: 'wipe-down', label: 'Wipe down', duration: 0.8, glsl: 'vec4 transition(vec2 uv) { return uv.y > 1.0 - progress ? getToColor(uv) : getFromColor(uv); }' },
   {
     type: 'slide-left',
     label: 'Slide left',
@@ -63,3 +64,10 @@ export const TRANSITIONS: TransitionDef[] = [
 
 const byType = new Map(TRANSITIONS.map((t) => [t.type, t]));
 export const transitionDef = (type: string): TransitionDef | undefined => byType.get(type);
+
+/** Timeline span `[start, end)` of a transition around the cut between its two clips. */
+export function transitionSpan(cut: number, duration: number, alignment: 'center' | 'start' | 'end'): [number, number] {
+  if (alignment === 'start') return [cut, cut + duration];
+  if (alignment === 'end') return [cut - duration, cut];
+  return [cut - duration / 2, cut + duration / 2];
+}

@@ -105,3 +105,17 @@ export function captionsToSubtitles(items: readonly Pick<CaptionItem, 'start' | 
   const body = sorted.map((c, i) => `${format === 'srt' ? `${i + 1}\n` : ''}${stamp(c.start, tb, format === 'srt' ? ',' : '.')} --> ${stamp(c.start + c.duration, tb, format === 'srt' ? ',' : '.')}\n${captionText(c)}\n`).join('\n');
   return format === 'vtt' ? `WEBVTT\n\n${body}` : body;
 }
+
+/** Words for edited caption text: timings spread across the caption in proportion to word length. */
+export function retimeWords(text: string, start: Ticks, duration: Ticks): { text: string; start: Ticks; end: Ticks }[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const total = words.reduce((n, w) => n + w.length + 1, 0);
+  let at = 0;
+  return words.map((w) => {
+    const from = start + Math.round((at / total) * duration);
+    at += w.length + 1;
+    const to = start + Math.round((at / total) * duration);
+    return { text: w, start: from, end: Math.max(from, Math.min(start + duration, to)) };
+  });
+}

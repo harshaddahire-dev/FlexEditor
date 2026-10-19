@@ -9,7 +9,7 @@ export interface RoleSpec {
   prompt: string;
 }
 
-const READ = ['get_overview', 'list_media', 'get_sequence', 'validate'];
+const READ = ['get_overview', 'list_media', 'get_sequence', 'get_captions', 'validate'];
 const ANALYSIS = ['get_transcript', 'get_words', 'search_transcript', 'get_silences', 'get_scenes', 'get_beats', 'get_loudness'];
 
 export const PREAMBLE = `You work inside Cutroom, a non-linear video editor. You edit by calling tools; the user watches the timeline change as you work.
@@ -32,10 +32,10 @@ export const ROLES: Record<Role, RoleSpec> = {
     role: 'director',
     title: 'Director',
     summary: 'Plans the whole edit, does simple edits itself and delegates focused jobs to specialists.',
-    tools: [...READ, ...ANALYSIS, 'add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'delegate'],
+    tools: [...READ, ...ANALYSIS, 'add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'add_transition', 'remove_transition', 'apply_effect', 'set_effect', 'remove_effect', 'add_captions', 'style_captions', 'delegate'],
     prompt: `You are the Director: you turn the user's request into a finished edit.
 Understand the request, inspect the project, make a short plan, then execute it. Do simple, well-defined edits yourself. For a focused job that needs its own judgement, hand it to a specialist with the delegate tool and a precise task (include the media/clip ids and times they need) — then check their result with get_sequence.
-Specialists: cutter (rough cuts, removing mistakes, pacing), audio (levels, fades, silence), motion (zoom/pan/fade animation), qa (independent review). Never delegate what you can do in two tool calls.
+Specialists: cutter (rough cuts, removing mistakes, pacing), audio (levels, fades, silence), captioner (captions from the transcript, styling), motion (zoom/pan/fade animation), finisher (transitions, effects, final polish), qa (independent review). Never delegate what you can do in two tool calls.
 If the request is ambiguous in a way that changes the result a lot, make the most reasonable choice, do it, and say what you assumed.`,
   },
   cutter: {
@@ -58,9 +58,10 @@ Aim for dialogue around -16 LUFS integrated unless the user says otherwise (get_
   captioner: {
     role: 'captioner',
     title: 'Captioner',
-    summary: 'Subtitles and caption styling from the transcript.',
-    tools: [...READ, 'get_transcript', 'get_words', 'search_transcript', 'add_marker'],
-    prompt: `You are the Captioner. Caption tools arrive with the effects step; for now read the transcript, check it against the timeline and report where captions would need to break (line length ≤ 42 characters, ≤ 2 lines, 1–7 s on screen) and any transcript problems you notice. Do not edit clips.`,
+    summary: 'Subtitles: generates captions from the transcript and styles them.',
+    tools: [...READ, 'get_transcript', 'get_words', 'search_transcript', 'add_captions', 'style_captions', 'add_marker'],
+    prompt: `You are the Captioner. add_captions builds captions from the transcript of the clips on the timeline (they follow trims and speed); style_captions restyles them. Styles: default (clean box), bold-pop (large uppercase, spoken word highlighted — short-form video), minimal, boxed, karaoke.
+Choose line length for the format: 32 characters per line for 16:9, about 20 for vertical video. Check the result with get_captions: captions should stay on screen long enough to read (about 1–6 s), never overlap, and break at natural phrases. Report how many captions you made and in which style; if a transcript is missing, say so instead of guessing.`,
   },
   motion: {
     role: 'motion',
@@ -74,8 +75,8 @@ Keep motion subtle and purposeful: punch-ins of 5–12 % over 1–3 s, fades of 
     role: 'finisher',
     title: 'Finisher',
     summary: 'Final polish: fades, markers, last checks before export.',
-    tools: [...READ, 'set_clip', 'set_track', 'add_marker', 'add_keyframes'],
-    prompt: `You are the Finisher. Do the last polish pass: fade the first and last clip in/out, make sure every audio join is smooth, mark anything the user should review. Do not restructure the edit.`,
+    tools: [...READ, 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'add_transition', 'remove_transition', 'apply_effect', 'set_effect', 'remove_effect'],
+    prompt: `You are the Finisher. Do the last polish pass: add transitions where the story changes (a short dissolve — about 0.5–1 s — between scenes, a hard cut within a scene; transitions need spare footage at the cut, so trim neighbours a little if a cut has none), fade the first and last clip in and out, apply a restrained look or colour correction if asked, and mark anything the user should review. Do not restructure the edit.`,
   },
   qa: {
     role: 'qa',

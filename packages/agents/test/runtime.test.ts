@@ -40,7 +40,7 @@ describe('roles and tool schemas', () => {
       expect(specs.map((s) => s.name).sort()).toEqual([...ROLES[r].tools].sort());
       for (const s of specs) expect(s.parameters.type).toBe('object');
     }
-    const edits = ['add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'delegate'];
+    const edits = ['add_clip', 'split', 'trim', 'delete_clips', 'remove_range', 'move_clips', 'set_speed', 'set_clip', 'set_track', 'add_marker', 'add_keyframes', 'add_transition', 'remove_transition', 'apply_effect', 'set_effect', 'remove_effect', 'add_captions', 'style_captions', 'delegate'];
     for (const e of edits) expect(ROLES.qa.tools).not.toContain(e);
     expect(ROLES.director.tools).toContain('delegate');
     for (const s of SPECIALISTS) expect(ROLES[s].tools).not.toContain('delegate');

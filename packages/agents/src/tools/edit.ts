@@ -1,5 +1,28 @@
 import { z } from 'zod';
-import { type Clip, type Media, type Op, type Sequence, type Track, findItem, frameTicks, isClip, mediaRef, msToTicks, trackItems } from '@cutroom/core';
+import {
+  type CaptionItem,
+  type Clip,
+  type Media,
+  type Op,
+  type Sequence,
+  type Track,
+  captionsForClip,
+  defaultParams,
+  effectDef,
+  findItem,
+  frameTicks,
+  hasCaptionStyle,
+  CAPTION_STYLES,
+  isCaption,
+  isClip,
+  maxTransitionDuration,
+  mediaRef,
+  msToTicks,
+  TRANSITIONS,
+  transitionDef,
+  trackItems,
+  validateEffect,
+} from '@cutroom/core';
 import { describeClip } from '../describe';
 import { describeTime, parseTime, toSeconds } from '../time';
 import { type ToolCtx, ToolError } from '../types';
@@ -245,3 +268,149 @@ export const editTools: ToolDef[] = [
     },
   }),
 ];
+
+/* ------------------------------------------------------------ transitions, effects, captions */
+
+function cutAfter(seq: Sequence, clipId: string): { a: Clip; b: Clip; track: Track } {
+  const { clip: a, track } = clipOf(seq, clipId);
+  const b = trackItems(track).filter(isClip).find((c) => c.start === a.start + a.duration);
+  if (!b) throw new ToolError(`${clipId} has no clip touching its end on ${track.name}; a transition needs two adjacent clips.`);
+  return { a, b, track };
+}
+
+const captionTrackOf = (seq: Sequence): Track | undefined => seq.tracks.find((t) => t.kind === 'caption');
+
+editTools.push(
+  defineTool({
+    name: 'add_transition',
+    description: `Blend the cut at the END of a clip into the next clip. Types: ${TRANSITIONS.map((t) => t.type).join(', ')}. Needs spare footage past both sides of the cut (handles); the duration is shortened to what exists and the result says so.`,
+    schema: z.object({ clipId: z.string().describe('the outgoing clip; the next clip on its track is the incoming one'), type: z.string(), seconds: z.number().min(0.1).max(10).optional(), alignment: z.enum(['center', 'start', 'end']).default('center') }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      const seq = ctx.host.sequence();
+      const def = transitionDef(a.type);
+      if (!def) throw new ToolError(`Unknown transition "${a.type}". Available: ${TRANSITIONS.map((t) => t.type).join(', ')}.`);
+      const { a: from, b: to, track } = cutAfter(seq, a.clipId);
+      const frame = frameTicks(seq.timebase);
+      const wanted = Math.round(((a.seconds ?? def.duration) * seq.timebase.rate) / frame) * frame;
+      const max = Math.floor(maxTransitionDuration({ env: ctx.host.env }, from, to, a.alignment) / frame) * frame;
+      const duration = Math.min(wanted, max);
+      if (duration < 2 * frame) throw new ToolError('There is no spare footage at this cut to blend. Trim the clips shorter first so they have handles, or use a different cut.');
+      const existing = track.transitions.find((t) => t.betweenClipIds[0] === from.id && t.betweenClipIds[1] === to.id);
+      const op: Op = existing ? { type: 'setTransition', id: existing.id, patch: { transitionType: a.type, duration } } : { type: 'addTransition', betweenClipIds: [from.id, to.id], transitionType: a.type, duration, alignment: a.alignment, params: {} };
+      return commit(ctx, [op], `${def.label} transition`, { transition: a.type, seconds: toSeconds(duration, seq.timebase), ...(duration < wanted ? { note: 'Shortened to the footage available.' } : {}) });
+    },
+  }),
+  defineTool({
+    name: 'remove_transition',
+    description: 'Remove the transition at the end of a clip.',
+    schema: z.object({ clipId: z.string() }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      const seq = ctx.host.sequence();
+      const { clip, track } = clipOf(seq, a.clipId);
+      const tr = track.transitions.find((t) => t.betweenClipIds[0] === clip.id);
+      if (!tr) throw new ToolError(`No transition after ${a.clipId}.`);
+      return commit(ctx, [{ type: 'removeTransition', id: tr.id }], 'Remove transition');
+    },
+  }),
+  defineTool({
+    name: 'apply_effect',
+    description: 'Add a visual effect to a video clip. Effects: color (exposure, brightness, contrast, saturation, temperature, tint), look (preset 0–4, strength), blur (radius px), sharpen, vignette, sepia, pixelate. Omit params for defaults.',
+    schema: z.object({ clipId: z.string(), type: z.string(), params: z.record(z.string(), z.number()).optional() }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      const { clip, track } = clipOf(ctx.host.sequence(), a.clipId);
+      if (track.kind !== 'video') throw new ToolError('Effects apply to video clips.');
+      const why = validateEffect(a.type, a.params ?? {});
+      if (why) throw new ToolError(why);
+      const params = { ...defaultParams(a.type), ...(a.params ?? {}) };
+      const before = clip.effects.map((e) => e.id);
+      const r = commit(ctx, [{ type: 'applyEffect', clipId: clip.id, effect: { type: a.type, params, enabled: true } }], `Apply ${effectDef(a.type)!.label}`);
+      const fx = clipOf(ctx.host.sequence(), clip.id).clip.effects.find((e) => !before.includes(e.id));
+      return { ...r, effectId: fx?.id };
+    },
+  }),
+  defineTool({
+    name: 'set_effect',
+    description: 'Change an effect already on a clip (by effectId, or by type when the clip has just one of that type), or switch it on/off.',
+    schema: z.object({ clipId: z.string(), effectId: z.string().optional(), type: z.string().optional(), params: z.record(z.string(), z.number()).optional(), enabled: z.boolean().optional() }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      const { clip } = clipOf(ctx.host.sequence(), a.clipId);
+      const matches = clip.effects.filter((e) => (a.effectId ? e.id === a.effectId : a.type ? e.type === a.type : false));
+      if (matches.length !== 1) throw new ToolError(matches.length ? `${matches.length} effects match; pass effectId (${matches.map((m) => m.id).join(', ')}).` : `No matching effect on ${a.clipId}. It has: ${clip.effects.map((e) => `${e.id} (${e.type})`).join(', ') || 'none'}.`);
+      const fx = matches[0]!;
+      if (a.params) {
+        const why = validateEffect(fx.type, a.params);
+        if (why) throw new ToolError(why);
+      }
+      if (!a.params && a.enabled === undefined) throw new ToolError('Nothing to change.');
+      return commit(ctx, [{ type: 'setEffect', clipId: clip.id, effectId: fx.id, ...(a.params ? { params: a.params } : {}), ...(a.enabled !== undefined ? { enabled: a.enabled } : {}) }], `Adjust ${effectDef(fx.type)?.label ?? fx.type}`);
+    },
+  }),
+  defineTool({
+    name: 'remove_effect',
+    description: 'Remove an effect from a clip (by effectId, or by type when there is only one).',
+    schema: z.object({ clipId: z.string(), effectId: z.string().optional(), type: z.string().optional() }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      const { clip } = clipOf(ctx.host.sequence(), a.clipId);
+      const matches = clip.effects.filter((e) => (a.effectId ? e.id === a.effectId : a.type ? e.type === a.type : false));
+      if (matches.length !== 1) throw new ToolError(`Name exactly one effect (effectId or a unique type). The clip has: ${clip.effects.map((e) => `${e.id} (${e.type})`).join(', ') || 'none'}.`);
+      return commit(ctx, [{ type: 'removeEffect', clipId: clip.id, effectId: matches[0]!.id }], 'Remove effect');
+    },
+  }),
+  defineTool({
+    name: 'add_captions',
+    description: `Create captions from the transcript for clips on the timeline (default: every clip with speech). Follows trims and speed, breaks on sentences and pauses, replaces existing captions. Styles: ${CAPTION_STYLES.map((s) => s.id).join(', ')}.`,
+    schema: z.object({ clipIds: z.array(z.string()).optional(), style: z.string().default('default'), maxCharsPerLine: z.number().int().min(10).max(60).default(32), maxLines: z.number().int().min(1).max(3).default(2) }),
+    scope: 'edit',
+    run: async (ctx, a) => {
+      if (!hasCaptionStyle(a.style)) throw new ToolError(`Unknown caption style "${a.style}". Available: ${CAPTION_STYLES.map((s) => s.id).join(', ')}.`);
+      let seq = ctx.host.sequence();
+      const pool = a.clipIds ? a.clipIds.map((id) => clipOf(seq, id).clip) : seq.tracks.filter((t) => t.kind !== 'caption').flatMap((t) => trackItems(t).filter(isClip));
+      const seen = new Set<string>();
+      const clips = pool.filter((c) => {
+        const key = c.linkGroupId ?? c.id;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).sort((x, y) => x.start - y.start);
+      const drafts: ReturnType<typeof captionsForClip> = [];
+      const skipped: string[] = [];
+      for (const c of clips) {
+        const t = (await ctx.host.analysis(c.mediaId, 'transcript')) as { words: { text: string; startMs: number; endMs: number }[] } | null;
+        if (!t) {
+          skipped.push(ctx.host.media().find((m) => m.id === c.mediaId)?.name ?? c.mediaId);
+          continue;
+        }
+        drafts.push(...captionsForClip(t.words, c, seq.timebase, { maxCharsPerLine: a.maxCharsPerLine, maxLines: a.maxLines }));
+      }
+      if (!drafts.length) throw new ToolError(skipped.length ? `No transcript for ${[...new Set(skipped)].join(', ')} (it may still be processing or the transcription engine is not installed).` : 'No speech found in those clips.');
+      let track = captionTrackOf(seq);
+      if (!track) {
+        const r = ctx.host.applyOps([{ type: 'addTrack', kind: 'caption' }], { label: 'Add caption track', origin: `agent:${ctx.role}`, group: ctx.group });
+        ctx.onEdit(r.revision);
+        seq = ctx.host.sequence();
+        track = captionTrackOf(seq);
+      }
+      if (!track) throw new ToolError('Could not create a caption track.');
+      const out = commit(ctx, [{ type: 'setCaptions', trackId: track.id, items: drafts.map((d) => ({ ...d, styleId: a.style })), createdBy: `agent:${ctx.role}` }], `Add ${drafts.length} captions`, { captions: drafts.length, style: a.style, track: track.name });
+      return { ...out, ...(skipped.length ? { skipped: [...new Set(skipped)] } : {}) };
+    },
+  }),
+  defineTool({
+    name: 'style_captions',
+    description: 'Change the style (and optionally the height, 0–1 from the top) of every caption.',
+    schema: z.object({ style: z.string(), y: z.number().min(0.05).max(0.95).optional() }),
+    scope: 'edit',
+    run: (ctx, a) => {
+      if (!hasCaptionStyle(a.style)) throw new ToolError(`Unknown caption style "${a.style}". Available: ${CAPTION_STYLES.map((s) => s.id).join(', ')}.`);
+      const track = captionTrackOf(ctx.host.sequence());
+      const caps = track ? trackItems(track).filter(isCaption) : [];
+      if (!caps.length) throw new ToolError('There are no captions yet. Use add_captions first.');
+      return commit(ctx, caps.map((c: CaptionItem): Op => ({ type: 'updateCaption', id: c.id, patch: { styleId: a.style, ...(a.y !== undefined ? { position: { x: c.position?.x ?? 0.5, y: a.y } } : {}) } })), 'Caption style', { styled: caps.length });
+    },
+  }),
+);
