@@ -1,64 +1,11 @@
-import { resetProject } from './helpers';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { clipsOn, edit, getSeq, proxyReady, resetProject, scan, undo } from './helpers';
 
 const footage = () => process.env.E2E_FOOTAGE!;
 
 test.beforeEach(async ({ request }) => {
   await resetProject(request);
 });
-
-type Clip = { id: string; start: number; duration: number; sourceIn: number; kind: string };
-type Seq = { revision: number; sequence: { timebase: { rate: number }; tracks: { name: string; items: Record<string, Clip> }[] } };
-const getSeq = async (page: Page): Promise<Seq> => (await page.request.get('/api/sequence')).json();
-const clipsOn = (s: Seq, name: string) => Object.values(s.sequence.tracks.find((t) => t.name === name)!.items).sort((a, b) => a.start - b.start);
-
-async function edit(page: Page, ops: unknown[], label: string) {
-  const before = (await getSeq(page)).revision;
-  const res = await page.request.post('/api/edit', { data: { ops, label, origin: 'user' } });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  await waitRevision(page, before + 1);
-}
-async function undo(page: Page) {
-  const before = (await getSeq(page)).revision;
-  await page.request.post('/api/history/undo');
-  await waitRevision(page, before + 1);
-}
-async function waitRevision(page: Page, min: number) {
-  await page.waitForFunction((m) => (window as unknown as { __cutroom: { useApp: { getState(): { revision: number } } } }).__cutroom.useApp.getState().revision >= m, min);
-}
-
-/** The interview's proxy exists, in the codec this browser reported, and the monitor is no longer waiting on it. */
-async function proxyReady(page: Page) {
-  await page.waitForFunction(() => {
-    const s = (window as unknown as { __cutroom: { useApp: { getState(): { media: Record<string, { name: string; status: { proxy: string }; proxy?: { codec: string } }> } } } }).__cutroom.useApp.getState();
-    return Object.values(s.media).some((m) => m.name === 'interview.mp4' && m.status.proxy === 'done' && m.proxy?.codec === 'vp9');
-  }, undefined, { timeout: 60_000 });
-  await expect(page.getByText('Preparing proxy…')).toBeHidden();
-}
-
-/** Paint every timeline frame 0…count-1 in turn and report, per frame, whether the monitor centre is white. */
-async function scan(page: Page, count: number) {
-  return page.evaluate(async (count) => {
-    const w = window as unknown as {
-      __cutroom: {
-        useApp: { getState(): { sequence: { width: number; height: number; timebase: { rate: number; fps: { num: number; den: number } } } } };
-        useTimeline: { getState(): { setPlayhead(t: number, s: unknown): void } };
-        viewer: { idle(): Promise<void>; pixel(x: number, y: number): number[] | null; shown: { ticks: number; layers: unknown[] } | null };
-      };
-    };
-    const { useApp, useTimeline, viewer } = w.__cutroom;
-    const seq = useApp.getState().sequence;
-    const frame = (seq.timebase.rate * seq.timebase.fps.den) / seq.timebase.fps.num;
-    const out: { n: number; white: boolean; dark: boolean; ticks: number; layers: number }[] = [];
-    for (let n = 0; n < count; n++) {
-      useTimeline.getState().setPlayhead(n * frame, seq);
-      await viewer.idle();
-      const p = viewer.pixel(seq.width / 2, seq.height / 2)!;
-      out.push({ n, white: p[0]! > 200 && p[1]! > 200 && p[2]! > 200, dark: p[0]! < 40 && p[1]! < 40 && p[2]! < 40, ticks: viewer.shown!.ticks, layers: viewer.shown!.layers.length });
-    }
-    return { frame, out };
-  }, count);
-}
 
 function expectFlashes(r: Awaited<ReturnType<typeof scan>>, isFlash: (n: number) => boolean, length: number) {
   const bad: string[] = [];

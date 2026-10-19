@@ -6,6 +6,7 @@ import { formatBytes, formatDuration, formatFps } from '../lib/format';
 import { framesToTimecode, frameTicks } from '@cutroom/core';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
+import { audio } from '../audio/engine';
 import { engine, useViewerStatus } from '../playback/engine';
 import { ICON } from './ui';
 
@@ -29,6 +30,34 @@ function info(m: Media, fps: Parameters<typeof formatDuration>[1]): [string, str
 }
 
 type Mode = 'program' | 'source';
+
+/** Stereo peak meter fed by the live audio graph (-60…0 dBFS). Reads the analysers each frame while playing. */
+function LevelMeter() {
+  const playing = useTimeline((s) => s.playing);
+  const bars = useRef<(HTMLSpanElement | null)[]>([]);
+  useEffect(() => {
+    let raf = 0;
+    const paint = () => {
+      const lv = playing ? audio.levels() : [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+      lv.forEach((db, i) => {
+        const el = bars.current[i];
+        if (!el) return;
+        el.style.width = `${Math.max(0, Math.min(1, (db + 60) / 60)) * 100}%`;
+        el.dataset.clip = db > -0.5 ? 'true' : 'false';
+      });
+      if (playing) raf = requestAnimationFrame(paint);
+    };
+    paint();
+    return () => cancelAnimationFrame(raf);
+  }, [playing]);
+  return (
+    <div className="meter" role="img" aria-label="Output level">
+      {[0, 1].map((i) => (
+        <div key={i} className="meter__lane"><span ref={(el) => { bars.current[i] = el; }} className="meter__bar" /></div>
+      ))}
+    </div>
+  );
+}
 
 /**
  * Centre panel. Program is the composited sequence at the playhead (WebGL, decoded from proxies); Source shows the
@@ -68,6 +97,7 @@ export function Viewer() {
         </div>
         <span className="muted">{mode === 'source' && media ? media.name : seq?.name ?? ''}</span>
         <span className="spacer" />
+        <LevelMeter />
         <span className="viewer__tc" aria-label="Timecode">{seq ? framesToTimecode(Math.round(playhead / frameTicks(seq.timebase)), seq.timebase.fps) : formatDuration({ num: 0, den: 1 }, fps)}</span>
       </div>
       <div className="viewer">

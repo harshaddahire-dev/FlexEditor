@@ -11,3 +11,4 @@ export * from './audio';
 export * from './validate';
 export * from './history';
 export * from './mediaRef';
+export * from './audioPlan';

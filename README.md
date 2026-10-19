@@ -4,9 +4,10 @@ A local-first, browser-based non-linear video editor where AI agents perform the
 Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001`
 that owns the project folder, FFmpeg, the analysis cache and (later) all model calls.
 
-> **Status: build step 1 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, project
-> persistence and the workspace shell work and are tested. Timeline, compositor, agents and export
-> arrive in the following steps — see [Roadmap](#roadmap).
+> **Status: build steps 1–3 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
+> undo/redo, a canvas timeline, a WebCodecs + WebGL program monitor and a Web Audio mix are working and tested —
+> including an automated proof that picture and sound stay on the same instant through split, trim, ripple and
+> speed edits. Media intelligence, agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -49,6 +50,26 @@ All time is rational: video in frames at the sequence rate (e.g. `30000/1001`), 
 packet timestamps and conformed to constant frame rate in the proxy; rotation, pixel aspect ratio, colour range/space and HDR are
 handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timecode is `HH:MM:SS:FF` and drop-frame aware.
 
+## How editing works
+
+- **Ticks.** Each sequence has one integer unit, `rate = lcm(fps.num, 48000)` ticks per second, so every video frame *and* every
+  audio sample is a whole number of ticks (30 fps → 48 000, 29.97 → 240 000). Linked A/V is compared with integer arithmetic.
+- **Edit engine** (`packages/core/src/edit`). Operations are zod-validated pure functions `(state, op) → { state, patches, inverse }`
+  (Immer patches, so the inverse is exact). 39 operations (insert, overwrite, split, trim, ripple/roll trim, slip, slide, move,
+  ripple delete, speed, keyframes, transitions, effects, captions, tracks, markers…) are grouped into transactions, and a
+  `normalize` pass rejects anything that would leave overlap, off-grid video, media over-run or link desync. fast-check property
+  tests run tens of thousands of random operations at 24/25/29.97/30/59.94 fps and assert that sync, geometry and undo hold.
+- **The server owns the sequence.** `POST /api/edit` is atomic (op-indexed errors, stale-revision 409), autosaves into
+  `project.json`, snapshots agent edits under `.cutroom/history`, and broadcasts Immer patches over the WebSocket; the browser
+  mirrors them and refetches if it ever misses one.
+- **Program monitor.** Video proxies (H.264, or VP9 when the browser cannot decode H.264 — the browser reports which) are demuxed
+  with mp4box from a Range-fetched sample table and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
+  for a timeline tick is chosen with integer arithmetic, so the flash frame of the sync asset lands on exactly its frame.
+- **Audio.** `planAudio` turns the sequence into *voices* (mute/solo, gain, balance, fades, and 8 ms equal-power crossfades at cuts
+  that have handle media). Voices are baked to stereo in half-second slices on absolute sample boundaries and placed on the
+  `AudioContext` timeline at exact sample times; the audio clock is the playback master clock. Export uses the *same* slices through
+  an `OfflineAudioContext`, so playback and export are the same samples.
+
 ## Repository layout
 
 ```
@@ -80,8 +101,8 @@ The server can read folders you point it at, so it only talks to pages on this m
 ## Roadmap
 
 1. ✅ Monorepo, FFmpeg check, project open/upload, import, ffprobe, proxies
-2. Time model + timeline data model + edit engine + undo/redo + property tests *(time/timecode done)*
-3. Timeline canvas, WebCodecs + WebGL compositor, audio graph, shortcuts
+2. ✅ Time model + timeline data model + edit engine + undo/redo + property tests
+3. ✅ Timeline canvas, WebCodecs + WebGL compositor, audio graph, shortcuts
 4. Media intelligence (waveforms, transcript, silences, scenes, beats, loudness)
 5. Providers, settings, key storage, model/effort/mode selectors
 6. Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff

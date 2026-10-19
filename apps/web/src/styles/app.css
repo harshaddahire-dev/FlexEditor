@@ -1087,3 +1087,27 @@ select.input {
 .palette [cmdk-item][data-selected='true'] {
   background: var(--bg-3);
 }
+
+/* ---------- output level meter ---------- */
+.meter {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 72px;
+  margin-right: var(--s-3);
+}
+.meter__lane {
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.meter__bar {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, var(--ok, #3ecf8e) 0%, var(--ok, #3ecf8e) 70%, var(--warn, #f5b94a) 90%);
+}
+.meter__bar[data-clip='true'] {
+  background: var(--danger, #f5655c);
+}
