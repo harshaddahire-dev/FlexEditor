@@ -1,6 +1,7 @@
 import { type Op, sequenceDuration } from '@cutroom/core';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
+import { useExport } from '../store/export';
 import { useUi } from '../store/ui';
 import {
   CommandError, addMarkerAt, deleteItems, editPoints, expandLinked, placeMedia, rippleTrimToPlayhead, splitAtPlayhead,
@@ -111,6 +112,7 @@ export const ACTIONS: Action[] = [
   { id: 'view.zoomOut', label: 'Zoom out', keys: ['-'], group: 'View', run: () => tl().zoom(1 / 1.4, tl().view.width / 2, seq()) },
   { id: 'view.fit', label: 'Zoom to fit', keys: ['Shift+z'], group: 'View', run: () => tl().fit(seq()) },
 
+  { id: 'app.render', label: 'Render…', keys: ['Mod+Shift+e'], group: 'App', run: () => { if (seq()) useExport.getState().openDialog(); } },
   { id: 'app.settings', label: 'Open settings', keys: ['Mod+,'], group: 'App', run: () => useUi.getState().openSettings() },
   { id: 'app.agent', label: 'Focus agent chat', keys: ['Mod+l'], group: 'App', run: () => { const ui = useUi.getState(); if (!ui.rightOpen) ui.toggleRight(); requestAnimationFrame(() => document.getElementById('agent-input')?.focus()); } },
 ];

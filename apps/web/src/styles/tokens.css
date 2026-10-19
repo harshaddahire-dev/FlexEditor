@@ -13,9 +13,11 @@
   --line-strong: #3a3a40;
   --text-1: #ebebed;
   --text-2: #a9a9b0;
-  --text-3: #74747c;
+  --text-3: #94949c;
   --accent: #4f8df7;
   --accent-hover: #6aa0ff;
+  --accent-strong: #2f6fdc; /* filled buttons: white text on it passes 4.5:1 */
+  --accent-strong-hover: #2762c4;
   --accent-ink: #ffffff;
   --accent-soft: rgb(79 141 247 / 0.16);
   --playhead: #ff5a36;
@@ -47,9 +49,11 @@
   --line-strong: #c3c3ca;
   --text-1: #17171a;
   --text-2: #4b4b53;
-  --text-3: #7a7a83;
+  --text-3: #5a5a64;
   --accent: #2a67e0;
   --accent-hover: #1f56c4;
+  --accent-strong: #2a67e0;
+  --accent-strong-hover: #1f56c4;
   --accent-ink: #ffffff;
   --accent-soft: rgb(42 103 224 / 0.12);
   --playhead: #e03c1f;

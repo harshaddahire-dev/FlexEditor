@@ -487,6 +487,9 @@ function TimelineBody() {
       <div className="tl__stage" ref={wrap}>
         <canvas
           ref={canvas}
+          role="application"
+          aria-roledescription="timeline"
+          aria-describedby="tl-help"
           aria-label="Timeline canvas"
           data-testid="timeline-canvas"
           tabIndex={0}
@@ -500,6 +503,7 @@ function TimelineBody() {
           onDrop={onDrop}
           onContextMenu={(e) => e.preventDefault()}
         />
+        <ClipList seq={seq} />
         {isEmpty ? (
           <div className="tl__empty" aria-live="polite">
             <p>The timeline is empty.</p>
@@ -508,6 +512,47 @@ function TimelineBody() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * The timeline is a canvas, which assistive technology cannot read. This is its text twin: instructions, a list of every clip
+ * (activate one to select it and move the playhead there) and the current selection announced as it changes.
+ */
+function ClipList({ seq }: { seq: Sequence }) {
+  const media = useApp((s) => s.media);
+  const selection = useTimeline((s) => s.selection);
+  const { select, setPlayhead } = useTimeline();
+  const f = frameTicks(seq.timebase);
+  const tc = (t: number) => framesToTimecode(Math.round(t / f), seq.timebase.fps);
+  const items = useMemo(() => {
+    const out: { id: string; label: string; start: number }[] = [];
+    for (const track of seq.tracks) {
+      for (const item of trackItems(track)) {
+        if (out.length >= 500) break;
+        const name = isClip(item) ? (media[item.mediaId]?.name ?? item.name ?? 'clip') : item.words.map((w) => w.text).join(' ').slice(0, 40) || 'caption';
+        out.push({ id: item.id, start: item.start, label: `${name} · ${track.name} · ${tc(item.start)} to ${tc(itemEnd(item))}` });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq, media]);
+  const chosen = items.filter((i) => selection.has(i.id));
+  return (
+    <>
+      <p id="tl-help" className="sr-only">
+        Timeline. Use the arrow keys to move the playhead by a frame, Home and End to jump to the start and end, Up and Down to move between edit points, S to toggle snapping, Shift+C to split at the playhead and Delete to remove the selection.
+        A list of every clip follows the timeline: press Enter on a clip to select it and move the playhead to it.
+      </p>
+      <ul className="sr-only" aria-label="Timeline clips">
+        {items.map((i) => (
+          <li key={i.id}>
+            <button type="button" aria-pressed={selection.has(i.id)} onClick={() => (select([i.id]), setPlayhead(i.start, seq))}>{i.label}</button>
+          </li>
+        ))}
+      </ul>
+      <div className="sr-only" role="status" aria-label="Selection">{chosen.length ? `Selected ${chosen.length === 1 ? chosen[0]!.label : `${chosen.length} items`}` : 'Nothing selected'}</div>
+    </>
   );
 }
 

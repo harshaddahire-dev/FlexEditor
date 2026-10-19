@@ -237,17 +237,81 @@ plugins/         Example plugin(s)
 e2e              Playwright end-to-end tests (+ opt-in screenshot specs tagged @shots)
 ```
 
+## Keyboard
+
+Everything is on the keyboard; `Ctrl/⌘ K` opens the command palette (every action, searchable, with its shortcut).
+
+| | |
+|---|---|
+| Play / pause · shuttle | `Space` · `J` `K` `L` |
+| Step a frame · ten frames | `←` `→` · `Shift+←` `Shift+→` |
+| Previous / next edit point · start / end | `↑` `↓` · `Home` `End` |
+| Mark in / out · clear | `I` `O` · `Alt+X` |
+| Select · blade · track-select-forward tool | `V` · `C` · `A` |
+| Split at playhead | `Shift+C` |
+| Ripple trim start / end to playhead | `Q` `W` |
+| Insert / overwrite selected media | `,` `.` |
+| Delete · ripple delete | `Delete` · `Shift+Delete` |
+| Marker · snapping · linked selection | `M` · `S` · `Shift+L` |
+| Undo · redo | `Ctrl/⌘ Z` · `Ctrl/⌘ Shift Z` |
+| Zoom in / out / fit | `+` `-` `Shift+Z` |
+| Focus the agent chat · settings · render | `Ctrl/⌘ L` · `Ctrl/⌘ ,` · `Ctrl/⌘ Shift+E` |
+
+## Accessibility
+
+The UI follows WCAG 2.1 AA and is checked in CI with axe-core on every screen (workspace, every panel tab, agent chat, Settings,
+Render, command palette, light and dark themes). Text meets 4.5:1 contrast in both themes; panels use real landmarks, roles and
+labels; dialogs trap and restore focus (Radix). The canvas timeline is one tab stop with instructions and has a text twin: a list of
+every clip you can activate to select it and move the playhead, plus the selection announced as it changes. Bin items open their
+menu with the Menu key or `Shift+F10`.
+
+## Performance
+
+Measured by the test suites (numbers from a small shared CI-class machine, software WebGL):
+
+- **Timeline:** 1,200 clips with the whole timeline in view — zoom and pan at ~60 fps (mean 17 ms/frame). Far-zoomed clips draw as plain
+  blocks (level of detail); only clips in the viewport are drawn at all.
+- **Edit engine:** local edits on a 1,200-clip sequence take 1–40 ms (limit 50 ms); an edit's Immer patch touches only what changed.
+- **Agent tools:** every read and edit tool call finishes in under 50 ms on a 1,200-clip timeline (reads ≈ 1 ms, edits 3–40 ms),
+  model latency excluded.
+- **Playback:** the audio clock is the master clock; frames are chosen with integer arithmetic and decoded GOP by GOP with
+  look-ahead, so the picture never waits at a GOP boundary.
+
 ## Tests
 
 ```bash
-pnpm test           # unit + integration (core, server with real FFmpeg, web)
+pnpm test           # unit + integration (core, agents, plugin-sdk, server with real FFmpeg, web)
 pnpm typecheck
 pnpm test:e2e       # Playwright (starts `pnpm dev` itself; uses /opt/pw-browsers/chromium if present)
+pnpm eval           # agent evals against scripted trajectories (no model needed)
+pnpm eval:live      # the same evals against a real model — see below
 pnpm gen:sync-asset out.mp4 10 30   # flash+beep A/V sync asset, prints measured offset
 ```
 
+| Suite | What it proves |
+|---|---|
+| `packages/core` (173) | rational time and timecode (drop-frame), the 39 edit operations, undo/redo, **fast-check property tests** over random operations at 24/25/29.97/30/59.94 fps (sync, geometry, undo), keyframes, audio planning, DSP (loudness vs FFmpeg `ebur128`), captions, effects, edit latency |
+| `packages/agents` (33) | the runtime, roles and every tool against the real engine with a scripted model; approvals, undo groups, QA loop; skills and external tools; **agent evals** (10 scenarios scored on the resulting timeline, plus negative controls that must fail); tool latency on 1,200 clips |
+| `apps/server` (164) | import/probe/proxies with real FFmpeg (VFR, rotated, anamorphic, HDR), **A/V sync through the proxy conform (0 frames)**, analysis pipeline, provider adapters against fake servers, key encryption, agent runs, extensions (a real MCP server over stdio and HTTP), **the FFmpeg export engine with golden-pixel checks** (cuts, gaps, transform, opacity, keyframes, dissolve, effects, speed, VFR, captions, sidecars, ProRes) |
+| `apps/web` (82) | timeline geometry and drawing, commands, layers, audio planning/mixing, event reducer |
+| `e2e` (Playwright) | every build step end to end in a real browser: import → proxies → intelligence; timeline editing; **flash/beep sync after split, trim, ripple and speed**; providers; agent runs (stream, approve, deny, stop, undo); effects/transitions/captions as **real compositor pixels**; skills, plugins and MCP; **exports through both engines with 0 frames of A/V offset and a cross-engine pixel comparison**; axe accessibility; 1,200-clip timeline frame rate |
+
 The A/V sync asset shows a single white frame and a 50 ms 1 kHz beep starting together at every whole second.
-`analyzeSync()` in `apps/server/test/helpers/media.ts` measures where each lands after any processing; tests assert **0 frames** of offset.
+`analyzeSync()` in `apps/server/test/helpers/media.ts` measures where each lands after any processing; tests assert **0 frames** of offset
+— for proxies, for every edit, and for files exported by either renderer.
+
+### Agent evals
+
+`packages/agents/evals` holds scenarios such as *remove the long silence*, *cut the "um"*, *30-second highlight*, *bold-pop captions*,
+*normalize to −16 LUFS*, *dissolve between clips*, *answer a question without editing*, *respect a refusal in Ask mode*, *recover from a
+wrong clip id* and */skill commands*. Each runs over a small synthetic project and is **judged on the resulting timeline** (valid, in
+sync, the right amount removed, the right gain…), not on the path taken. `pnpm eval` runs a scripted trajectory per scenario (this proves
+every outcome is reachable with the real tools and that the checks catch wrong results). To score a model:
+
+```bash
+EVAL_PROVIDER=openrouter EVAL_API_KEY=sk-… EVAL_MODEL=anthropic/claude-sonnet-4.5 pnpm eval:live
+EVAL_PROVIDER=custom EVAL_BASE_URL=http://localhost:11434/v1 EVAL_MODEL=llama3.1 pnpm eval:live remove-silence highlight-30s
+```
 
 ## Security model
 
@@ -262,7 +326,15 @@ The server can read folders you point it at, so it only talks to pages on this m
 4. ✅ Media intelligence (waveforms, filmstrip, transcript, silences, scenes, beats, loudness)
 5. ✅ Providers, settings, key storage, model/effort/mode selectors
 6. ✅ Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff
-7. Keyframes, motion, transitions, effects, captions
-8. Skills + plugins + MCP
-9. Export pipeline + job queue
-10. Polish, accessibility, performance, E2E + agent evals
+7. ✅ Keyframes, motion, transitions, effects, captions
+8. ✅ Skills + plugins + MCP
+9. ✅ Export pipeline + job queue (WebCodecs and FFmpeg engines, sidecar subtitles)
+10. ✅ Polish, accessibility, performance, E2E + agent evals
+
+### Known limits
+
+- Whisper.cpp and a ggml model must be installed separately for transcripts (everything else works without them).
+- The browser export engine decodes one GOP at a time; very long-GOP 4K sources are routed to the FFmpeg engine automatically.
+- The FFmpeg engine approximates vignette, teal & orange, pixelate and a few transitions, and animates effect parameters at their
+  clip-start value; the result says which approximations were used.
+- Plugins and MCP servers run with your permissions (that is why they are Full-access only).

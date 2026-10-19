@@ -43,8 +43,9 @@ function ModelPicker() {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="picker" aria-label="Model" aria-haspopup="listbox">
+        <button className="picker" aria-haspopup="listbox">
           <Bot {...ICON} />
+          <span className="sr-only">Model: </span>
           <span className="picker__text">
             <span className="picker__model">{provider ? settings.model ?? 'Choose a model' : 'Choose a model'}</span>
             <span className="picker__prov faint">{provider ? provider.name : 'No provider connected'}</span>

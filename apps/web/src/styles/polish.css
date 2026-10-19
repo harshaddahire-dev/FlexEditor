@@ -46,14 +46,14 @@ body {
   transform: translateY(0.5px);
 }
 .btn.btn--primary {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
   color: var(--accent-ink);
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.18);
 }
 .btn.btn--primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
+  background: var(--accent-strong-hover);
+  border-color: var(--accent-strong-hover);
 }
 .btn.btn--primary:disabled {
   background: var(--bg-3);
@@ -514,19 +514,19 @@ body {
   height: 18px;
   padding: 0 5px;
   border-radius: 3px;
-  background: var(--clip-video-hd);
+  background: #3b5f92; /* white text on every badge colour passes 4.5:1 in both themes */
   color: #fff;
   font-size: 10.5px;
   letter-spacing: 0.03em;
 }
 .tlh__row[data-kind='audio'] .tlh__name {
-  background: var(--clip-audio-hd);
+  background: #2f7458;
 }
 .tlh__row[data-kind='caption'] .tlh__name {
-  background: var(--clip-caption-hd);
+  background: #7a6325;
 }
 .tlh__row[data-kind='graphics'] .tlh__name {
-  background: var(--clip-graphics-hd);
+  background: #7452a3;
 }
 .tlh__kind {
   font-size: 9.5px;
@@ -1550,7 +1550,7 @@ body {
 }
 .cstyle__sample[data-style='bold-pop'] {
   color: #ffd23f;
-  -webkit-text-stroke: 1px #000;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
   letter-spacing: 0.04em;
 }
 .cstyle__sample[data-style='default'] {
@@ -2058,4 +2058,8 @@ body {
 .kv dt {
   margin: 0;
   align-self: baseline;
+}
+
+.slash__item[data-on='true'] .slash__desc {
+  color: var(--text-2);
 }

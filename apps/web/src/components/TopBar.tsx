@@ -32,7 +32,7 @@ export function TopBar() {
       <Logo size={22} />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button className="btn btn--ghost topbar__project" aria-label="Project menu">
+          <button className="btn btn--ghost topbar__project" aria-label={`${project?.name ?? 'Project'} — project menu`}>
             <span className="topbar__name">{project?.name}</span>
             <ChevronDown {...ICON} />
           </button>
