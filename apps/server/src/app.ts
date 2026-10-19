@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import type { EditRequest, FfmpegStatus, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
+import type { AgentSettings, EditRequest, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
 import { findWhisper, type WhisperInstall } from './analysis/whisper';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
@@ -15,6 +15,7 @@ import { sendFile } from './files';
 import { listDirectory } from './fsBrowse';
 import { JobQueue } from './jobs';
 import { EditRequestError } from './edit';
+import { ProviderError, ProviderService } from './providers';
 import { ProjectError, ProjectManager } from './project';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from './security';
 import { exists } from './util';
@@ -23,6 +24,7 @@ export const APP_VERSION = '0.1.0';
 
 export interface BuiltApp {
   app: FastifyInstance;
+  providers: ProviderService;
   manager: ProjectManager;
   jobs: JobQueue;
   appDb: AppDb;
@@ -45,6 +47,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   let ffmpeg: FfmpegStatus = options.ffmpegStatus ?? (await checkFfmpeg(config.ffmpegPath, config.ffprobePath));
   const appDb = new AppDb(path.join(config.dataDir, 'app.sqlite'));
   const jobs = new JobQueue(options.jobConcurrency ?? 2);
+  const providers = new ProviderService(appDb, path.join(config.dataDir, 'secret.key'));
   const whisper = options.whisper ?? (() => findWhisper(config.dataDir));
   const manager = new ProjectManager({
     whisper,
@@ -68,6 +71,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     if (err instanceof ProjectError) {
       return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     }
+    if (err instanceof ProviderError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof EditRequestError) return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     if (err instanceof UnsafePathError) return reply.code(400).send({ error: 'unsafe_path', message: err.message });
     if (err.validation) return reply.code(400).send({ error: 'bad_request', message: err.message });
@@ -143,6 +147,48 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       const requeued = manager.current ? await manager.refreshProxies() : 0;
       return { codec, requeued };
     },
+  );
+
+
+  /* ---- model providers: keys are write-only; the browser only ever sees ProviderInfo ---- */
+  const kinds = ['openrouter', 'openai', 'anthropic', 'gemini', 'custom'];
+  const providerBody = {
+    type: 'object',
+    properties: {
+      kind: { enum: kinds },
+      name: { type: 'string', maxLength: 80 },
+      baseUrl: { type: 'string', maxLength: 300 },
+      apiKey: { type: 'string', maxLength: 600 },
+      defaultModel: { type: 'string', maxLength: 200 },
+    },
+  } as const;
+  app.get('/api/providers', async () => ({ providers: providers.store.list(), agent: providers.store.agent() }));
+  app.post<{ Body: ProviderInput }>('/api/providers', { schema: { body: { ...providerBody, required: ['kind'] } } }, async (req, reply) => {
+    return reply.code(201).send(providers.store.add(req.body));
+  });
+  app.patch<{ Params: { id: string }; Body: Partial<ProviderInput> }>('/api/providers/:id', { schema: { body: providerBody } }, async (req) => {
+    const info = providers.store.update(req.params.id, req.body);
+    providers.forget(req.params.id);
+    return info;
+  });
+  app.delete<{ Params: { id: string } }>('/api/providers/:id', async (req) => {
+    providers.store.remove(req.params.id);
+    providers.forget(req.params.id);
+    return { ok: true };
+  });
+  app.post<{ Params: { id: string } }>('/api/providers/:id/test', async (req) => providers.test(req.params.id));
+  app.get<{ Params: { id: string }; Querystring: { refresh?: string } }>('/api/providers/:id/models', async (req) => {
+    try {
+      return { models: await providers.models(req.params.id, req.query.refresh === '1') };
+    } catch (e) {
+      if (e instanceof ProviderError) throw e;
+      return { models: [], error: e instanceof Error ? e.message : String(e) };
+    }
+  });
+  app.put<{ Body: AgentSettings }>(
+    '/api/agent/settings',
+    { schema: { body: { type: 'object', required: ['effort', 'mode'], properties: { providerId: { type: 'string' }, model: { type: 'string' }, effort: { enum: ['off', 'low', 'medium', 'high', 'max'] }, mode: { enum: ['ask', 'auto', 'full'] } } } } },
+    async (req) => providers.store.setAgent(req.body),
   );
 
   /* ---- filesystem picker ---- */
@@ -358,5 +404,5 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     appDb.close();
   });
 
-  return { app, manager, jobs, appDb };
+  return { app, manager, jobs, appDb, providers };
 }

@@ -4,7 +4,7 @@ A local-first, browser-based non-linear video editor where AI agents perform the
 Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001`
 that owns the project folder, FFmpeg, the analysis cache and (later) all model calls.
 
-> **Status: build steps 1–4 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
+> **Status: build steps 1–5 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
 > undo/redo, a canvas timeline, a WebCodecs + WebGL program monitor and a Web Audio mix are working and tested —
 > including an automated proof that picture and sound stay on the same instant through split, trim, ripple and
 > speed edits. Media intelligence (waveforms, filmstrip, loudness, silences, scenes, beats, transcript) is in too. Agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
@@ -89,6 +89,23 @@ After the proxies exist, every file is analysed in the background; results are c
 Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again*
 in the Transcript tab.
 
+## Model providers
+
+Settings → **Providers** connects the models the agents will use: **OpenRouter**, **OpenAI**, **Anthropic**, **Google Gemini**, or any
+**OpenAI-compatible** endpoint (Ollama, LM Studio, vLLM, a proxy…). In the Agent tab you pick the model (searchable, with any model id
+typeable), the reasoning **effort** (Off / Low / Med / High / Max) and the **mode** (Ask: every edit waits for approval · Auto: edits
+apply and are reviewed as a diff · Full access: agents may also run plugins/tools beyond the project). A meter shows tokens used against
+the model's context window.
+
+- **Keys never reach the browser.** They are sent to the local server once, sealed with AES-256-GCM (master key in
+  `<app data>/secret.key`, owner-only) and stored as ciphertext; the API only ever returns "has key" and the last four characters.
+  Provider errors are scrubbed of the key before they are shown or logged.
+- **One chat interface, three wire formats.** The server speaks each provider natively — OpenAI-style chat completions (also used for
+  OpenRouter and custom endpoints), Anthropic Messages, and Gemini `generateContent` — streaming, with tool calls, reasoning (Anthropic
+  thinking blocks and Gemini thought signatures are carried across tool turns) and usage. Effort maps to `reasoning_effort` /
+  `reasoning` / a thinking token budget as each API expects. All three are tested against local fake servers that check the exact
+  request each provider would receive.
+
 ## Repository layout
 
 ```
@@ -123,7 +140,7 @@ The server can read folders you point it at, so it only talks to pages on this m
 2. ✅ Time model + timeline data model + edit engine + undo/redo + property tests
 3. ✅ Timeline canvas, WebCodecs + WebGL compositor, audio graph, shortcuts
 4. ✅ Media intelligence (waveforms, filmstrip, transcript, silences, scenes, beats, loudness)
-5. Providers, settings, key storage, model/effort/mode selectors
+5. ✅ Providers, settings, key storage, model/effort/mode selectors
 6. Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff
 7. Keyframes, motion, transitions, effects, captions
 8. Skills + plugins + MCP

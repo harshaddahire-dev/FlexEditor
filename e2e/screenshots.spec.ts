@@ -50,8 +50,13 @@ test('capture screenshots @shots', async ({ page, request }) => {
   await page.getByRole('radio', { name: 'List view' }).click();
   await page.screenshot({ path: path.join(out, '4-list-view.png') });
 
+  await page.getByRole('tab', { name: 'Agent' }).click();
+  await page.screenshot({ path: path.join(out, '9-agent.png') });
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.screenshot({ path: path.join(out, '5-settings.png') });
+  await page.getByRole('tab', { name: 'Providers' }).click();
+  await page.getByRole('button', { name: 'Add provider' }).click();
+  await page.screenshot({ path: path.join(out, '10-providers.png') });
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: 'Settings' }).click();

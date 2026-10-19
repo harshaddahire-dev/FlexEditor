@@ -23,12 +23,12 @@ interface UiState {
   rightTab: RightTab;
   setRightTab(t: RightTab): void;
   settingsOpen: boolean;
-  settingsTab: 'project' | 'system';
+  settingsTab: 'project' | 'providers' | 'system';
   theme: Theme;
   setWorkspace(w: Workspace): void;
   setLeftTab(t: LeftTab): void;
   toggleRight(): void;
-  openSettings(tab?: 'project' | 'system'): void;
+  openSettings(tab?: 'project' | 'providers' | 'system'): void;
   closeSettings(): void;
   setTheme(t: Theme): void;
 }

@@ -1,6 +1,7 @@
 import * as Tabs from '@radix-ui/react-tabs';
-import { Bot, PanelRightClose } from 'lucide-react';
+import { PanelRightClose } from 'lucide-react';
 import { useUi, type LeftTab, type RightTab } from '../store/ui';
+import { AgentSetup } from './AgentSetup';
 import { Inspector } from './Inspector';
 import { MediaBin } from './MediaBin';
 import { TranscriptPanel } from './TranscriptPanel';
@@ -57,13 +58,7 @@ export function AgentPanel() {
           </Tip>
         </div>
         <Tabs.Content className="tabs__content tabs__scroll" value="inspector"><Inspector /></Tabs.Content>
-        <Tabs.Content className="tabs__content" value="agent">
-          <div className="empty empty--center">
-            <Bot size={28} strokeWidth={1.25} />
-            <p>Editing agents are not connected yet.</p>
-            <p className="faint">Model providers, the Director and its specialists arrive in the next build steps. They will edit through the same operations the Inspector uses.</p>
-          </div>
-        </Tabs.Content>
+        <Tabs.Content className="tabs__content" value="agent"><AgentSetup /></Tabs.Content>
       </Tabs.Root>
     </aside>
   );
