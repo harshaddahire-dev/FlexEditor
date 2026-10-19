@@ -17,7 +17,7 @@ afterEach(async () => {
 });
 const tmp = async (): Promise<string> => {
   const d = await fs.mkdtemp(path.join(os.tmpdir(), 'cutroom-prov-'));
-  cleanup.push(() => fs.rm(d, { recursive: true, force: true }));
+  cleanup.push(() => fs.rm(d, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   return d;
 };
 

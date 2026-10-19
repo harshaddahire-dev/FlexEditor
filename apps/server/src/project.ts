@@ -256,7 +256,15 @@ export class ProjectManager extends EventEmitter<Events> {
     const files = (await this.walk(folder)).filter((f) => !ignored.has(toStoredPath(folder, f)));
     const report: ScanReport = { imported: 0, changed: 0, unchanged: 0, missing: 0, relinked: 0, rejected: [] };
 
-    const outcomes = await mapLimit(files, this.opts.probeConcurrency ?? 4, async (f) => ({ f, o: await this.importFile(f) }));
+    // The first video (in path order) of an empty project defines its size and frame rate. Probing runs in parallel, so without
+    // this the winner would be whichever file happened to finish first and the same folder could open as 16:9 or 9:16.
+    const queue = [...files];
+    const outcomes: { f: string; o: ImportOutcome }[] = [];
+    while (queue.length && project.settings.auto && !project.media.some((m) => m.type === 'video')) {
+      const f = queue.shift()!;
+      outcomes.push({ f, o: await this.importFile(f) });
+    }
+    outcomes.push(...(await mapLimit(queue, this.opts.probeConcurrency ?? 4, async (f) => ({ f, o: await this.importFile(f) }))));
     for (const { f, o } of outcomes) {
       if (o.kind === 'rejected') report.rejected.push({ path: toStoredPath(folder, f), reason: o.reason });
       else report[o.kind]++;
