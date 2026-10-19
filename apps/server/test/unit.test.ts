@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { isSupportedExtension, rational } from '@cutroom/core';
 import { analyzeFrameTiming } from '../src/timing';
 import { displaySize, interpretProbe, type FfprobeJson } from '../src/probe';
-import { planProxy, proxyDimensions, buildProxyArgs } from '../src/proxy';
+import { planProxy, proxyDimensions, buildProxyArgs, buildAudioProxyArgs, planAudioProxy } from '../src/proxy';
 import { parseVersion } from '../src/ffmpeg';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from '../src/security';
 import { parseRange } from '../src/files';
@@ -151,8 +151,8 @@ describe('proxy planning', () => {
   };
 
   it('conforms to CFR, square pixels, BT.709 limited', () => {
-    const plan = planProxy(video, 2, { filters: {} });
-    expect(plan).toMatchObject({ width: 1920, height: 1080, gop: 15, audioChannels: 2 });
+    const plan = planProxy(video, { filters: {} });
+    expect(plan).toMatchObject({ codec: 'h264', width: 1920, height: 1080, gop: 15 });
     expect(plan.filter).toContain('fps=30000/1001');
     expect(plan.filter).toContain('scale=1920:1080');
     expect(plan.filter).toContain('out_color_matrix=bt709:out_range=tv');
@@ -162,31 +162,60 @@ describe('proxy planning', () => {
   });
 
   it('assumes BT.709 for untagged HD and BT.601 for untagged SD', () => {
-    expect(planProxy({ ...video, colorSpace: undefined }, 0, { filters: {} }).filter).toContain('in_color_matrix=bt709');
-    expect(planProxy({ ...video, colorSpace: undefined, height: 480, width: 640 }, 0, { filters: {} }).filter).toContain('in_color_matrix=bt601');
+    expect(planProxy({ ...video, colorSpace: undefined }, { filters: {} }).filter).toContain('in_color_matrix=bt709');
+    expect(planProxy({ ...video, colorSpace: undefined, height: 480, width: 640 }, { filters: {} }).filter).toContain('in_color_matrix=bt601');
   });
 
   it('tone-maps HDR when zscale exists, warns when it does not', () => {
     const hdr = { ...video, hdr: true };
-    const ok = planProxy(hdr, 2, { filters: { zscale: true, tonemap: true } });
+    const ok = planProxy(hdr, { filters: { zscale: true, tonemap: true } });
     expect(ok.filter).toContain('tonemap=tonemap=hable');
     expect(ok.warnings).toEqual([]);
-    const no = planProxy(hdr, 2, { filters: {} });
+    const no = planProxy(hdr, { filters: {} });
     expect(no.filter).not.toContain('tonemap');
     expect(no.warnings[0]).toMatch(/tone-mapped/);
   });
 
-  it('deinterlaces and downmixes surround to stereo', () => {
-    const p = planProxy({ ...video, interlaced: true }, 6, { filters: {} });
-    expect(p.filter.startsWith('yadif')).toBe(true);
-    expect(p.audioChannels).toBe(2);
+  it('deinterlaces', () => {
+    expect(planProxy({ ...video, interlaced: true }, { filters: {} }).filter.startsWith('yadif')).toBe(true);
   });
 
-  it('builds ffmpeg args with short GOP, no B-frames and fast-start', () => {
-    const plan = planProxy(video, 2, { filters: {} });
-    const args = buildProxyArgs('in.mov', 'out.mp4', plan, true);
-    expect(args).toEqual(expect.arrayContaining(['-g', '15', '-bf', '0', '-movflags', '+faststart', '-map', '0:a:0']));
-    expect(buildProxyArgs('in.mov', 'out.mp4', plan, false)).not.toContain('0:a:0');
+  it('video proxies carry no audio (it lives in a separate WAV); H.264 has short GOP, no B-frames, fast-start', () => {
+    const args = buildProxyArgs('in.mov', 'out.mp4', planProxy(video, { filters: {} }));
+    expect(args).toEqual(expect.arrayContaining(['-an', '-c:v', 'libx264', '-g', '15', '-bf', '0', '-movflags', '+faststart']));
+    expect(args).not.toContain('-c:a');
+  });
+
+  it('VP9 proxies are real-time, look-ahead free (presentation order) and tagged vp09', () => {
+    const args = buildProxyArgs('in.mov', 'out.mp4', planProxy(video, { filters: {} }, 'vp9'));
+    expect(args).toEqual(expect.arrayContaining(['libvpx-vp9', '-deadline', 'realtime', '-lag-in-frames', '0', '-auto-alt-ref', '0', '-g', '15', 'vp09']));
+    expect(args).not.toContain('libx264');
+  });
+});
+
+describe('audio proxy', () => {
+  const audio = { codec: 'aac', sampleRate: 44100, channels: 6, startTime: rational(0) };
+  const vid = { startTime: rational(0) } as never;
+
+  it('is 48 kHz PCM, stereo at most', () => {
+    const args = buildAudioProxyArgs('in.mov', 'out.wav', planAudioProxy(audio, vid));
+    expect(args).toEqual(expect.arrayContaining(['-vn', '-c:a', 'pcm_s16le', '-ar', '48000', '-ac', '2', '-f', 'wav']));
+    expect(planAudioProxy({ ...audio, channels: 1 }, vid).channels).toBe(1);
+  });
+
+  it('keeps the container time origin: audio that starts after it is padded with silence', () => {
+    const late = planAudioProxy({ ...audio, startTime: rational(21, 1000) }, vid);
+    expect(late.offsetSec).toBeCloseTo(0.021, 6);
+    expect(buildAudioProxyArgs('a', 'b', late).join(' ')).toContain('adelay=21:all=1');
+    expect(buildAudioProxyArgs('a', 'b', planAudioProxy(audio, vid)).join(' ')).not.toContain('adelay');
+    // video starting later than the audio: the origin is the audio's start, so no padding is needed
+    expect(planAudioProxy(audio, { startTime: rational(1, 10) } as never).offsetSec).toBe(0);
+    // both start late together: the origin moves with them
+    expect(planAudioProxy({ ...audio, startTime: rational(1, 10) }, { startTime: rational(1, 10) } as never).offsetSec).toBe(0);
+  });
+
+  it('audio-only media uses its own start as the origin', () => {
+    expect(planAudioProxy({ ...audio, startTime: rational(5, 100) }, undefined).offsetSec).toBe(0);
   });
 });
 

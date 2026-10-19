@@ -42,6 +42,12 @@ export interface FfmpegStatus {
   installHints: string[];
 }
 
+export interface ProxySettingsResponse {
+  codec: import('./media').ProxyCodec;
+  /** Media whose proxies had to be regenerated for the new codec. */
+  requeued: number;
+}
+
 export interface HealthResponse {
   app: 'cutroom';
   version: string;

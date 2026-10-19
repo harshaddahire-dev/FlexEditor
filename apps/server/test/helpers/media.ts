@@ -23,6 +23,10 @@ export interface SyncAssetOptions {
   vfr?: boolean;
   /** Extra output video filters, e.g. `setsar=4/3`. */
   vf?: string;
+  /** Delay the audio stream by this many seconds (its container start_time becomes > 0). */
+  audioDelay?: number;
+  /** Delay the video stream (its start_time becomes > 0). */
+  videoDelay?: number;
 }
 
 /**
@@ -36,10 +40,12 @@ export async function generateSyncAsset(out: string, o: SyncAssetOptions = {}): 
   if (o.vfr) filters.push('select=lt(mod(n\\,10)\\,3)+gt(mod(n\\,10)\\,4)');
   if (o.vf) filters.push(o.vf);
   await ff([
+    ...(o.videoDelay ? ['-itsoffset', String(o.videoDelay)] : []),
     '-f', 'lavfi', '-i', `color=c=black:s=${width}x${height}:r=${fps}:d=${seconds},drawbox=x=0:y=0:w=iw:h=ih:color=white:t=fill:enable='lt(mod(n,${fps}),1)',format=yuv420p`,
+    ...(o.audioDelay ? ['-itsoffset', String(o.audioDelay)] : []),
     '-f', 'lavfi', '-i', `aevalsrc='if(lt(mod(t,1),0.05),0.6*sin(2*PI*1000*t),0)':s=48000:d=${seconds}`,
     ...(filters.length ? ['-vf', filters.join(',')] : []),
-    '-fps_mode', o.vfr ? 'vfr' : 'cfr',
+    '-fps_mode', o.vfr ? 'vfr' : o.videoDelay ? 'passthrough' : 'cfr', // cfr would duplicate frames to fill a leading gap
     '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '18', '-pix_fmt', 'yuv420p', '-g', String(fps),
     '-c:a', 'aac', '-b:a', '128k',
     out,
@@ -60,8 +66,8 @@ export interface SyncReport {
   frameTimes: number[];
 }
 
-/** Decode a file and measure where each flash and each beep actually lands. */
-export async function analyzeSync(file: string): Promise<SyncReport> {
+/** Decode a file (or a video proxy + its audio proxy) and measure where each flash and each beep actually lands. */
+export async function analyzeSync(file: string, audioFile: string = file): Promise<SyncReport> {
   // video: tiny gray frames in presentation order + their timestamps
   const frames = await runBinary(FFMPEG, [
     '-v', 'error', '-i', file, '-map', '0:v:0', '-vf', 'scale=4:4:flags=area,format=gray', '-fps_mode', 'passthrough', '-f', 'rawvideo', 'pipe:1',
@@ -87,7 +93,7 @@ export async function analyzeSync(file: string): Promise<SyncReport> {
 
   // audio: mono 48 kHz PCM laid out on the media timeline (leading gap padded, so index 0 == t 0)
   const pcm = await runBinary(FFMPEG, [
-    '-v', 'error', '-i', file, '-map', '0:a:0', '-af', 'aresample=async=1:first_pts=0', '-ac', '1', '-ar', '48000', '-f', 's16le', 'pipe:1',
+    '-v', 'error', '-i', audioFile, '-map', '0:a:0', '-af', 'aresample=async=1:first_pts=0', '-ac', '1', '-ar', '48000', '-f', 's16le', 'pipe:1',
   ]);
   const samples = new Int16Array(pcm.stdout.buffer, pcm.stdout.byteOffset, Math.floor(pcm.stdout.length / 2));
   const beepTimes: number[] = [];

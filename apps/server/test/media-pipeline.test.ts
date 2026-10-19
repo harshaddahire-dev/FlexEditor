@@ -5,9 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { rational, toNumber } from '@cutroom/core';
 import { checkFfmpeg } from '../src/ffmpeg';
 import { probeFile } from '../src/probe';
-import { generatePoster, generateProxy, planProxy } from '../src/proxy';
+import { generateAudioProxy, generatePoster, generateProxy, planAudioProxy, planProxy } from '../src/proxy';
 import { runText } from '../src/proc';
-import { analyzeSync, fixtures, type Fixtures } from './helpers/media';
+import { analyzeSync, fixtures, generateSyncAsset, type Fixtures } from './helpers/media';
+import type { ProxyCodec } from '@cutroom/core';
 
 let fx: Fixtures;
 let work: string;
@@ -22,13 +23,19 @@ afterAll(async () => {
   await fs.rm(work, { recursive: true, force: true });
 });
 
-async function makeProxy(src: string, name: string) {
+async function makeProxy(src: string, name: string, codec: ProxyCodec = 'h264') {
   const media = await probeFile(src);
-  const plan = planProxy(media.video!, media.audioChannels, status);
+  const plan = planProxy(media.video!, status, codec);
   const out = path.join(work, `${name}.mp4`);
   const progress: number[] = [];
-  await generateProxy(src, out, plan, !!media.audio, toNumber(media.duration), { ffmpegPath: 'ffmpeg', onProgress: (p) => progress.push(p) });
-  return { media, plan, out, progress };
+  const dur = toNumber(media.duration);
+  await generateProxy(src, out, plan, dur, { ffmpegPath: 'ffmpeg', onProgress: (p) => progress.push(p) });
+  let wav: string | undefined;
+  if (media.audio) {
+    wav = path.join(work, `${name}.wav`);
+    await generateAudioProxy(src, wav, planAudioProxy(media.audio, media.video), dur, { ffmpegPath: 'ffmpeg' });
+  }
+  return { media, plan, out, wav, progress };
 }
 
 describe('ffmpeg environment', () => {
@@ -98,85 +105,118 @@ describe('probing real files', () => {
   });
 });
 
-describe('edit proxies', () => {
-  it('CFR source: same fps, square pixels, BT.709 limited, audio kept, progress reported', async () => {
-    const { out, progress, plan } = await makeProxy(fx.sync, 'cfr');
+describe.each<ProxyCodec>(['h264', 'vp9'])('edit proxies (%s)', (codec) => {
+  const hasEncoder = () => status.encoders[codec === 'vp9' ? 'libvpx-vp9' : 'libx264'];
+
+  it('CFR source: same fps, square pixels, BT.709 limited; video-only; audio in a separate PCM WAV', async () => {
+    if (!hasEncoder()) return;
+    const { out, wav, progress, plan } = await makeProxy(fx.sync, `cfr-${codec}`, codec);
     const p = await probeFile(out);
     expect(p.fps).toEqual(rational(30));
-    expect(p.video).toMatchObject({ width: 640, height: 360, vfr: false, colorRange: 'limited', colorSpace: 'bt709', pixFmt: 'yuv420p' });
-    expect(p.audio?.sampleRate).toBe(48000);
+    expect(p.video).toMatchObject({ width: 640, height: 360, vfr: false, colorRange: 'limited', colorSpace: 'bt709', pixFmt: 'yuv420p', codec: codec === 'vp9' ? 'vp9' : 'h264' });
+    expect(p.audio).toBeUndefined(); // the video proxy has no audio track
     expect(plan.gop).toBe(15);
     expect(progress.at(-1)).toBe(1);
     expect(progress.every((v, i) => i === 0 || v >= progress[i - 1]!)).toBe(true);
     await expect(fs.stat(out.replace(/\.mp4$/, '.partial.mp4'))).rejects.toThrow(); // temp file cleaned up
+
+    const w = await probeFile(wav!);
+    expect(w).toMatchObject({ type: 'audio', audioChannels: 1 });
+    expect(w.audio).toMatchObject({ codec: 'pcm_s16le', sampleRate: 48000 });
+    expect(toNumber(w.duration)).toBeGreaterThanOrEqual(6);
+    expect(toNumber(w.duration)).toBeLessThan(6.03); // an AAC source decodes with up to one frame of encoder padding
   });
 
   it('VFR source is conformed to a perfectly constant frame rate with the same duration', async () => {
-    const { media, out } = await makeProxy(fx.vfr, 'vfr');
-    const r = await analyzeSync(out);
+    if (!hasEncoder()) return;
+    const { media, out } = await makeProxy(fx.vfr, `vfr-${codec}`, codec);
+    const r = await analyzeSync(out, fx.vfr); // frames from the proxy; audio only needed to satisfy the analyser
     const deltas = r.frameTimes.slice(1).map((t, i) => t - r.frameTimes[i]!);
     const nominal = 1 / 24;
-    // every frame lands on the 1/24 s grid
     for (const d of deltas) expect(Math.abs(d - nominal)).toBeLessThan(1e-4);
     expect(Math.abs(r.frameTimes.at(-1)! + nominal - toNumber(media.duration))).toBeLessThan(nominal + 1e-3);
   });
 
-  it('A/V stays in sync (0 frames) through the VFR → CFR conform', async () => {
+  it('A/V stays in sync (0 frames) through the VFR → CFR conform: video proxy + audio proxy', async () => {
+    if (!hasEncoder()) return;
     const before = await analyzeSync(fx.vfr);
     expect(before.flashTimes).toHaveLength(6);
-    const { out } = await makeProxy(fx.vfr, 'vfr-sync');
-    const after = await analyzeSync(out);
+    const { out, wav } = await makeProxy(fx.vfr, `vfr-sync-${codec}`, codec);
+    const after = await analyzeSync(out, wav);
     expect(after.flashTimes).toHaveLength(6);
     expect(after.beepTimes).toHaveLength(6);
     expect(after.maxOffsetFrames).toBe(0);
-    // flashes stay within one proxy frame of their true second marks
     after.flashTimes.forEach((t, k) => expect(Math.abs(t - k)).toBeLessThanOrEqual(1 / 24 + 1e-3));
     // eslint-disable-next-line no-console
-    console.log(`VFR→CFR A/V offset: max ${after.maxAbsOffsetMs.toFixed(2)} ms (source: ${before.maxAbsOffsetMs.toFixed(2)} ms)`);
+    console.log(`[${codec}] VFR→CFR A/V offset: max ${after.maxAbsOffsetMs.toFixed(2)} ms (source: ${before.maxAbsOffsetMs.toFixed(2)} ms)`);
   });
 
-  it('CFR proxy keeps A/V sync within sub-millisecond-to-few-ms', async () => {
-    const { out } = await makeProxy(fx.sync, 'cfr-sync');
-    const r = await analyzeSync(out);
+  it('CFR proxy pair keeps A/V sync to within a few milliseconds', async () => {
+    if (!hasEncoder()) return;
+    const { out, wav } = await makeProxy(fx.sync, `cfr-sync-${codec}`, codec);
+    const r = await analyzeSync(out, wav);
     expect(r.maxOffsetFrames).toBe(0);
-    expect(r.maxAbsOffsetMs).toBeLessThan(10);
+    expect(r.maxAbsOffsetMs).toBeLessThan(2); // PCM has no codec priming: the audio proxy is sample-exact
+  });
+
+  it('a late-starting audio stream keeps its offset in the WAV (same origin as the video)', async () => {
+    if (!hasEncoder()) return;
+    const src = await generateSyncAsset(path.join(work, 'late-audio.mp4'), { seconds: 4, audioDelay: 0.5 });
+    const source = await analyzeSync(src);
+    expect(source.maxAbsOffsetMs).toBeGreaterThan(450); // beep k sits 500 ms after flash k
+    const { out, wav } = await makeProxy(src, `late-${codec}`, codec);
+    const proxy = await analyzeSync(out, wav);
+    expect(Math.abs(proxy.offsetsMs[0]! - source.offsetsMs[0]!)).toBeLessThan(3);
+    expect(Math.abs(proxy.offsetsMs[0]! - 500)).toBeLessThan(3);
+  });
+
+  it('a late-starting VIDEO stream keeps its offset too (the mirror case)', async () => {
+    if (!hasEncoder()) return;
+    const src = await generateSyncAsset(path.join(work, 'late-video.mp4'), { seconds: 4, videoDelay: 0.5 });
+    const source = await analyzeSync(src);
+    expect(Math.abs(source.offsetsMs[0]! + 500)).toBeLessThan(3); // beep k is 500 ms BEFORE flash k
+    const { out, wav } = await makeProxy(src, `latevid-${codec}`, codec);
+    const proxy = await analyzeSync(out, wav);
+    expect(Math.abs(proxy.offsetsMs[0]! + 500), `proxy offset ${proxy.offsetsMs[0]} ms`).toBeLessThan(3);
   });
 
   it('rotated source is physically rotated, anamorphic source gets square pixels', async () => {
-    const rot = await makeProxy(fx.rotated, 'rot');
-    const rp = await probeFile(rot.out);
-    expect(rp.video).toMatchObject({ width: 360, height: 640, rotation: 0 });
-    const ana = await makeProxy(fx.anamorphic, 'ana');
+    if (!hasEncoder()) return;
+    const rot = await makeProxy(fx.rotated, `rot-${codec}`, codec);
+    expect((await probeFile(rot.out)).video).toMatchObject({ width: 360, height: 640, rotation: 0 });
+    const ana = await makeProxy(fx.anamorphic, `ana-${codec}`, codec);
     const ap = await probeFile(ana.out);
     expect(ap.video).toMatchObject({ width: 640, height: 360 });
     expect(toNumber(ap.video!.sar)).toBe(1);
   });
 
   it('HDR source is tone-mapped to an 8-bit BT.709 proxy', async () => {
-    if (!status.filters.zscale) return;
-    const { out, plan } = await makeProxy(fx.hdr, 'hdr');
+    if (!hasEncoder() || !status.filters.zscale) return;
+    const { out, plan } = await makeProxy(fx.hdr, `hdr-${codec}`, codec);
     expect(plan.warnings).toEqual([]);
-    const p = await probeFile(out);
-    expect(p.video).toMatchObject({ hdr: false, bitDepth: 8, colorSpace: 'bt709', colorTransfer: 'bt709' });
+    expect((await probeFile(out)).video).toMatchObject({ hdr: false, bitDepth: 8, colorSpace: 'bt709', colorTransfer: 'bt709' });
   });
+});
 
+describe('proxy job control', () => {
   it('cancellation kills ffmpeg and leaves no partial file', async () => {
     const media = await probeFile(fx.sync);
-    const plan = planProxy(media.video!, 1, status);
+    const plan = planProxy(media.video!, status);
     const out = path.join(work, 'cancel.mp4');
     const ac = new AbortController();
     ac.abort();
-    await expect(generateProxy(fx.sync, out, plan, true, 6, { ffmpegPath: 'ffmpeg', signal: ac.signal })).rejects.toThrow(/abort/);
+    await expect(generateProxy(fx.sync, out, plan, 6, { ffmpegPath: 'ffmpeg', signal: ac.signal })).rejects.toThrow(/abort/);
     await expect(fs.stat(out)).rejects.toThrow();
     await expect(fs.stat(out.replace(/\.mp4$/, '.partial.mp4'))).rejects.toThrow();
   });
 
   it('failure surfaces ffmpeg stderr', async () => {
     const media = await probeFile(fx.sync);
-    const plan = planProxy(media.video!, 1, status);
+    const plan = planProxy(media.video!, status);
     const bad = path.join(work, 'garbage.mp4');
     await fs.writeFile(bad, 'nope');
-    await expect(generateProxy(bad, path.join(work, 'x.mp4'), plan, true, 6, { ffmpegPath: 'ffmpeg' })).rejects.toThrow(/ffmpeg proxy failed/);
+    await expect(generateProxy(bad, path.join(work, 'x.mp4'), plan, 6, { ffmpegPath: 'ffmpeg' })).rejects.toThrow(/ffmpeg proxy failed/);
+    await expect(generateAudioProxy(bad, path.join(work, 'x.wav'), { channels: 2, offsetSec: 0 }, 6, { ffmpegPath: 'ffmpeg' })).rejects.toThrow(/audio proxy failed/);
   });
 });
 

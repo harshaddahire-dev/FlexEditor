@@ -91,9 +91,12 @@ describe('open folder → import', () => {
     const clip = byName(media, 'clip.mp4');
     expect(clip.status).toMatchObject({ probe: 'done', poster: 'done', proxy: 'done' });
     expect(clip.proxyPath).toBe(`.cutroom/proxies/${clip.id}.mp4`);
-    expect(clip.proxy).toMatchObject({ width: 640, height: 360, fps: { num: 30, den: 1 } });
+    expect(clip.audioProxyPath).toBe(`.cutroom/proxies/${clip.id}.wav`);
+    expect(clip.proxy).toMatchObject({ width: 640, height: 360, fps: { num: 30, den: 1 }, codec: 'h264' });
     const tone = byName(media, 'tone.wav');
-    expect(tone.status).toMatchObject({ poster: 'skipped', proxy: 'skipped' });
+    expect(tone.status).toMatchObject({ poster: 'skipped', proxy: 'done' }); // audio-only: just the WAV proxy
+    expect(tone.proxyPath).toBeUndefined();
+    expect(tone.audioProxyPath).toBe(`.cutroom/proxies/${tone.id}.wav`);
     const still = byName(media, 'still.png');
     expect(still.status).toMatchObject({ poster: 'done', proxy: 'skipped' });
     await expect(fs.stat(path.join(dir, clip.proxyPath!))).resolves.toBeTruthy();
@@ -126,6 +129,10 @@ describe('open folder → import', () => {
     const bad = await b.app.inject({ url: `${url}/proxy`, headers: { range: `bytes=${size + 10}-` } });
     expect(bad.statusCode).toBe(416);
 
+    const audio = await b.app.inject(`${url}/audio`);
+    expect(audio.statusCode).toBe(200);
+    expect(audio.headers['content-type']).toBe('audio/wav');
+    expect(audio.rawPayload.subarray(0, 4).toString()).toBe('RIFF');
     const poster = await b.app.inject(`${url}/poster`);
     expect(poster.headers['content-type']).toBe('image/jpeg');
     expect(poster.rawPayload.subarray(0, 2).toString('hex')).toBe('ffd8');

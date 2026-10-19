@@ -1,7 +1,7 @@
 import type { BinaryStatus, FfmpegStatus } from '@cutroom/core';
 import { runText } from './proc';
 
-const WANTED_ENCODERS = ['libx264', 'libx265', 'aac', 'libopus', 'prores_ks'] as const;
+const WANTED_ENCODERS = ['libx264', 'libvpx-vp9', 'libx265', 'aac', 'libopus', 'prores_ks'] as const;
 const WANTED_FILTERS = [
   'zscale',
   'tonemap',
@@ -85,6 +85,7 @@ export async function checkFfmpeg(ffmpegPath = 'ffmpeg', ffprobePath = 'ffprobe'
       if (m && m[1]! in filters) filters[m[1]!] = true;
     }
     for (const e of REQUIRED_ENCODERS) if (!encoders[e]) problems.push(`ffmpeg is missing the "${e}" encoder.`);
+    if (!encoders['libvpx-vp9']) warnings.push('No libvpx-vp9 encoder: browsers without H.264 decoding (open-source Chromium) cannot get edit proxies.');
     for (const f of REQUIRED_FILTERS) if (!filters[f]) problems.push(`ffmpeg is missing the "${f}" filter.`);
     if (!encoders.libx265) warnings.push('No libx265 encoder: H.265 export is unavailable.');
     if (!encoders.prores_ks) warnings.push('No prores_ks encoder: ProRes export is unavailable.');

@@ -1,7 +1,9 @@
 import fs from 'node:fs/promises';
 import {
+  type AudioStreamInfo,
   type FfmpegStatus,
   type Media,
+  type ProxyCodec,
   type Rational,
   type VideoStreamInfo,
   toNumber,
@@ -12,13 +14,13 @@ import { runText, runBinary } from './proc';
 export const PROXY_MAX_SHORT_SIDE = 1080;
 
 export interface ProxyPlan {
+  codec: ProxyCodec;
   width: number;
   height: number;
   fps: Rational;
   gop: number;
   /** -vf filter graph. */
   filter: string;
-  audioChannels: number;
   warnings: string[];
 }
 
@@ -44,8 +46,8 @@ const HDR_TONEMAP = [
  */
 export function planProxy(
   video: VideoStreamInfo,
-  audioChannels: number,
   caps: Pick<FfmpegStatus, 'filters'>,
+  codec: ProxyCodec = 'h264',
 ): ProxyPlan {
   const warnings: string[] = [];
   const { width, height } = proxyDimensions(video.width, video.height);
@@ -70,34 +72,43 @@ export function planProxy(
   chain.push('format=yuv420p');
 
   const gop = Math.max(1, Math.round(toNumber(fps) / 2));
-  return {
-    width,
-    height,
-    fps,
-    gop,
-    filter: chain.join(','),
-    audioChannels: Math.min(2, audioChannels),
-    warnings,
-  };
+  return { codec, width, height, fps, gop, filter: chain.join(','), warnings };
 }
 
-export function buildProxyArgs(src: string, out: string, plan: ProxyPlan, hasAudio: boolean): string[] {
-  const args = [
-    '-y', '-hide_banner', '-nostdin', '-v', 'error',
-    '-i', src,
-    '-map', '0:v:0',
-  ];
-  if (hasAudio) args.push('-map', '0:a:0');
-  args.push(
-    '-vf', plan.filter,
-    '-fps_mode', 'passthrough', // the fps filter already produced CFR; don't let the muxer re-time
-    '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20',
-    '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-sc_threshold', '0', '-bf', '0',
-    '-pix_fmt', 'yuv420p',
-    '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv',
-  );
-  if (hasAudio) args.push('-c:a', 'aac', '-b:a', '192k', '-ar', '48000', '-ac', String(Math.max(1, plan.audioChannels)));
+/** Video-only proxy: audio lives in a separate PCM WAV (see `buildAudioProxyArgs`). */
+export function buildProxyArgs(src: string, out: string, plan: ProxyPlan): string[] {
+  const args = ['-y', '-hide_banner', '-nostdin', '-v', 'error', '-i', src, '-map', '0:v:0', '-an', '-vf', plan.filter, '-fps_mode', 'passthrough'];
+  if (plan.codec === 'vp9') {
+    // short GOP, no look-ahead / alt-ref reordering: frames come out in presentation order and every GOP is seekable
+    args.push('-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-crf', '30', '-b:v', '0',
+      '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-lag-in-frames', '0', '-auto-alt-ref', '0', '-tag:v', 'vp09');
+  } else {
+    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-sc_threshold', '0', '-bf', '0');
+  }
+  args.push('-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv');
   args.push('-movflags', '+faststart', '-f', 'mp4', '-progress', 'pipe:1', '-nostats', out);
+  return args;
+}
+
+export interface AudioProxyPlan {
+  channels: number;
+  /** Seconds of silence to prepend: how long after the container origin the audio stream starts (never negative). */
+  offsetSec: number;
+}
+
+/**
+ * The audio proxy keeps the container's time origin: if the audio stream starts 21 ms after the first video frame,
+ * the WAV opens with 21 ms of silence, so "media time t" means the same thing in the video proxy and the WAV.
+ */
+export function planAudioProxy(audio: AudioStreamInfo, video: VideoStreamInfo | undefined): AudioProxyPlan {
+  const origin = video ? Math.min(toNumber(video.startTime), toNumber(audio.startTime)) : toNumber(audio.startTime);
+  return { channels: Math.max(1, Math.min(2, audio.channels)), offsetSec: toNumber(audio.startTime) - origin };
+}
+
+export function buildAudioProxyArgs(src: string, out: string, plan: AudioProxyPlan): string[] {
+  const args = ['-y', '-hide_banner', '-nostdin', '-v', 'error', '-i', src, '-vn', '-map', '0:a:0'];
+  if (plan.offsetSec > 0.0005) args.push('-af', `adelay=${Math.round(plan.offsetSec * 1000)}:all=1`);
+  args.push('-c:a', 'pcm_s16le', '-ar', '48000', '-ac', String(plan.channels), '-f', 'wav', '-progress', 'pipe:1', '-nostats', out);
   return args;
 }
 
@@ -107,35 +118,35 @@ export interface ProxyRunOptions {
   onProgress?: (fraction: number) => void;
 }
 
-/** Transcode `src` into `out` (via a temp file so a crash never leaves a truncated proxy). */
-export async function generateProxy(
-  src: string,
-  out: string,
-  plan: ProxyPlan,
-  hasAudio: boolean,
-  durationSeconds: number,
-  opts: ProxyRunOptions,
-): Promise<void> {
-  const tmp = out.replace(/\.mp4$/, '.partial.mp4');
-  const args = buildProxyArgs(src, tmp, plan, hasAudio);
+async function runWithProgress(ffmpegPath: string, args: string[], tmp: string, out: string, durationSeconds: number, opts: ProxyRunOptions, what: string): Promise<void> {
   try {
-    const r = await runBinary(opts.ffmpegPath, args, {
+    const r = await runBinary(ffmpegPath, args, {
       signal: opts.signal,
       onStdoutLine: (line) => {
         const m = /^out_time_(?:us|ms)=(\d+)/.exec(line);
-        if (m && durationSeconds > 0) {
-          // out_time_ms is (misleadingly) also microseconds in ffmpeg's -progress output.
-          opts.onProgress?.(Math.min(1, Number(m[1]) / 1e6 / durationSeconds));
-        }
+        // out_time_ms is (misleadingly) also microseconds in ffmpeg's -progress output
+        if (m && durationSeconds > 0) opts.onProgress?.(Math.min(1, Number(m[1]) / 1e6 / durationSeconds));
       },
     });
-    if (r.code !== 0) throw new Error(`ffmpeg proxy failed: ${r.stderr.trim().split('\n').slice(-3).join(' | ')}`);
+    if (r.code !== 0) throw new Error(`ffmpeg ${what} failed: ${r.stderr.trim().split('\n').slice(-3).join(' | ')}`);
     await fs.rename(tmp, out);
     opts.onProgress?.(1);
   } catch (e) {
     await fs.rm(tmp, { force: true });
     throw e;
   }
+}
+
+/** Transcode `src` into the video proxy `out` (via a temp file so a crash never leaves a truncated proxy). */
+export async function generateProxy(src: string, out: string, plan: ProxyPlan, durationSeconds: number, opts: ProxyRunOptions): Promise<void> {
+  const tmp = out.replace(/\.mp4$/, '.partial.mp4');
+  await runWithProgress(opts.ffmpegPath, buildProxyArgs(src, tmp, plan), tmp, out, durationSeconds, opts, 'proxy');
+}
+
+/** Decode the audio to 48 kHz PCM WAV. */
+export async function generateAudioProxy(src: string, out: string, plan: AudioProxyPlan, durationSeconds: number, opts: ProxyRunOptions): Promise<void> {
+  const tmp = out.replace(/\.wav$/, '.partial.wav');
+  await runWithProgress(opts.ffmpegPath, buildAudioProxyArgs(src, tmp, plan), tmp, out, durationSeconds, opts, 'audio proxy');
 }
 
 export interface PosterOptions {

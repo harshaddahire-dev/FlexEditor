@@ -3,6 +3,9 @@ import type { Rational } from './time';
 
 export type MediaType = 'video' | 'audio' | 'image';
 
+/** Video codec of edit proxies. H.264 where the browser can decode it, VP9 otherwise (open-source Chromium, some Linux builds). */
+export type ProxyCodec = 'h264' | 'vp9';
+
 export type ColorRange = 'limited' | 'full' | 'unknown';
 
 export interface VideoStreamInfo {
@@ -68,8 +71,10 @@ export interface Media {
   path: string;
   /** Relative to the project folder; undefined until the proxy exists. */
   proxyPath?: string;
-  /** Geometry/rate of the generated proxy (constant frame rate, square pixels). */
-  proxy?: { width: number; height: number; fps: Rational };
+  /** Geometry/rate/codec of the generated video proxy (constant frame rate, square pixels). */
+  proxy?: { width: number; height: number; fps: Rational; codec: ProxyCodec };
+  /** 48 kHz PCM WAV of the audio, on the same time origin as the video proxy. */
+  audioProxyPath?: string;
   posterPath?: string;
   type: MediaType;
   name: string;

@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import type { EditRequest, FfmpegStatus, HealthResponse, ProjectResponse, ServerEvent } from '@cutroom/core';
+import type { EditRequest, FfmpegStatus, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
 import { checkFfmpeg } from './ffmpeg';
@@ -48,6 +48,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     ffmpegStatus: () => ffmpeg,
     jobs,
     appDb,
+    proxyCodec: () => appDb.getSetting<ProxyCodec>('proxyCodec') ?? 'h264',
     saveDelayMs: options.saveDelayMs,
   });
 
@@ -114,6 +115,24 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   const requireFfmpeg = () => {
     if (!ffmpeg.ok) throw new ProjectError('ffmpeg_missing', ffmpeg.problems.join(' '), 503);
   };
+
+  /**
+   * The browser reports which video codec it can decode; proxies are made in that codec. Changing it regenerates
+   * only the proxies that were made for a different one.
+   */
+  app.get('/api/settings/proxy-codec', async () => ({ codec: appDb.getSetting<ProxyCodec>('proxyCodec') ?? 'h264' }));
+  app.put<{ Body: { codec: ProxyCodec } }>(
+    '/api/settings/proxy-codec',
+    { schema: { body: { type: 'object', required: ['codec'], properties: { codec: { enum: ['h264', 'vp9'] } } } } },
+    async (req): Promise<ProxySettingsResponse> => {
+      const { codec } = req.body;
+      const encoder = codec === 'vp9' ? 'libvpx-vp9' : 'libx264';
+      if (!ffmpeg.encoders[encoder]) throw new ProjectError('encoder_missing', `ffmpeg has no ${encoder} encoder, so ${codec.toUpperCase()} proxies cannot be made.`, 409);
+      appDb.setSetting('proxyCodec', codec);
+      const requeued = manager.current ? await manager.refreshProxies() : 0;
+      return { codec, requeued };
+    },
+  );
 
   /* ---- filesystem picker ---- */
   app.get<{ Querystring: { path?: string } }>('/api/fs/list', async (req) => {
@@ -261,8 +280,8 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
 
   app.get<{ Params: { id: string; kind: string } }>('/api/media/:id/file/:kind', async (req, reply) => {
     const kind = req.params.kind;
-    if (kind !== 'original' && kind !== 'proxy' && kind !== 'poster') {
-      throw new ProjectError('bad_request', 'kind must be original, proxy or poster.');
+    if (kind !== 'original' && kind !== 'proxy' && kind !== 'audio' && kind !== 'poster') {
+      throw new ProjectError('bad_request', 'kind must be original, proxy, audio or poster.');
     }
     const media = manager.findMedia(req.params.id);
     if (!media) throw new ProjectError('no_such_media', 'No such media.', 404);

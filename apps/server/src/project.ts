@@ -13,6 +13,7 @@ import {
   type Media,
   type Project,
   type ProjectSettings,
+  type ProxyCodec,
   type ProjectSummary,
   type ScanReport,
   emptyStatus,
@@ -34,7 +35,7 @@ import {
   toStoredPath,
 } from './paths';
 import { probeFile } from './probe';
-import { generatePoster, generateProxy, planProxy, proxyDimensions } from './proxy';
+import { generateAudioProxy, generatePoster, generateProxy, planAudioProxy, planProxy, proxyDimensions } from './proxy';
 import { ProcessAbortedError } from './proc';
 import { exists, fingerprintFile, mapLimit, writeJsonAtomic } from './util';
 
@@ -44,6 +45,8 @@ export interface ProjectManagerOptions {
   ffmpegStatus: () => FfmpegStatus;
   jobs: JobQueue;
   appDb: AppDb;
+  /** Codec for newly generated video proxies (what this browser can decode). */
+  proxyCodec: () => ProxyCodec;
   /** Debounce for autosave of project.json (spec: 1 s). */
   saveDelayMs?: number;
   probeConcurrency?: number;
@@ -132,9 +135,9 @@ export class ProjectManager extends EventEmitter<Events> {
     return this.project?.media.find((m) => m.id === id);
   }
 
-  mediaFile(media: Media, kind: 'original' | 'proxy' | 'poster'): string | null {
+  mediaFile(media: Media, kind: 'original' | 'proxy' | 'audio' | 'poster'): string | null {
     if (!this.folder) return null;
-    const stored = kind === 'original' ? media.path : kind === 'proxy' ? media.proxyPath : media.posterPath;
+    const stored = kind === 'original' ? media.path : kind === 'proxy' ? media.proxyPath : kind === 'audio' ? media.audioProxyPath : media.posterPath;
     return stored ? fromStoredPath(this.folder, stored) : null;
   }
 
@@ -318,6 +321,8 @@ export class ProjectManager extends EventEmitter<Events> {
         Object.assign(m, probed, { sizeBytes: st.size, mtimeMs: st.mtimeMs, missing: false, status: emptyStatus(), analysis: {} });
         m.status.probe = 'done';
         delete m.proxy;
+        delete m.proxyPath;
+        delete m.audioProxyPath;
       })!;
       db.putFile({ path: stored, fingerprint, size: st.size, mtimeMs: st.mtimeMs, mediaId: media.id });
       await this.ensureDerived(media);
@@ -396,19 +401,26 @@ export class ProjectManager extends EventEmitter<Events> {
 
   /* ------------------------------------------------------- derived assets */
 
-  /** Queue poster/proxy jobs for whatever is missing on disk. */
+  /** Queue poster/proxy jobs for whatever is missing on disk — or was made for a codec this browser cannot decode. */
   private async ensureDerived(media: Media): Promise<void> {
     const { folder } = this.requireProject();
     if (media.missing) return;
+    const codec = this.opts.proxyCodec();
 
-    if (media.proxyPath && !(await exists(fromStoredPath(folder, media.proxyPath)))) {
+    const gone = async (stored?: string) => !!stored && !(await exists(fromStoredPath(folder, stored)));
+    const wantsAudioProxy = !!media.audio;
+    const stale =
+      media.status.proxy === 'done' &&
+      ((media.type === 'video' && media.proxy?.codec !== codec) || (wantsAudioProxy && !media.audioProxyPath));
+    if (stale || (await gone(media.proxyPath)) || (await gone(media.audioProxyPath))) {
       this.patchMedia(media.id, (m) => {
         delete m.proxyPath;
+        delete m.audioProxyPath;
         delete m.proxy;
         m.status.proxy = 'pending';
       });
     }
-    if (media.posterPath && !(await exists(fromStoredPath(folder, media.posterPath)))) {
+    if (await gone(media.posterPath)) {
       this.patchMedia(media.id, (m) => {
         delete m.posterPath;
         m.status.poster = 'pending';
@@ -416,16 +428,23 @@ export class ProjectManager extends EventEmitter<Events> {
     }
 
     const m = this.findMedia(media.id)!;
-    if (m.type === 'audio') {
-      this.patchMedia(m.id, (x) => {
-        x.status.poster = 'skipped';
-        x.status.proxy = 'skipped';
-      });
-      return;
-    }
+    if (m.type === 'audio') this.patchMedia(m.id, (x) => void (x.status.poster = 'skipped'));
     if (m.type === 'image' && m.status.proxy !== 'skipped') this.patchMedia(m.id, (x) => void (x.status.proxy = 'skipped'));
     if (m.status.poster === 'pending') this.queuePoster(m.id);
-    if (m.type === 'video' && m.status.proxy === 'pending') this.queueProxy(m.id);
+    if (m.type !== 'image' && m.status.proxy === 'pending') this.queueProxy(m.id);
+  }
+
+  /** The browser's decoding abilities changed: regenerate every proxy that was made for another codec. */
+  async refreshProxies(): Promise<number> {
+    const { project } = this.requireProject();
+    let n = 0;
+    for (const m of project.media) {
+      if (m.type === 'video' && m.status.proxy === 'done' && m.proxy?.codec !== this.opts.proxyCodec()) {
+        await this.reproxy(m.id);
+        n++;
+      }
+    }
+    return n;
   }
 
   private queuePoster(id: string): void {
@@ -464,21 +483,33 @@ export class ProjectManager extends EventEmitter<Events> {
       run: async ({ signal, progress }) => {
         const m = this.findMedia(id);
         const { folder } = this.requireProject();
-        if (!m?.video) return;
+        if (!m || (!m.video && !m.audio)) return;
         this.patchMedia(id, (x) => void (x.status.proxy = 'running'));
-        const plan = planProxy(m.video, m.audioChannels, this.opts.ffmpegStatus());
-        const out = path.join(proxiesDir(folder), `${id}.mp4`);
+        const duration = toNumber(m.duration);
+        const base = { ffmpegPath: this.opts.ffmpegPath, signal };
+        const codec = this.opts.proxyCodec();
+        const videoShare = m.video ? (m.audio ? 0.85 : 1) : 0;
         try {
-          await generateProxy(fromStoredPath(folder, m.path), out, plan, !!m.audio, toNumber(m.duration), {
-            ffmpegPath: this.opts.ffmpegPath,
-            signal,
-            onProgress: progress,
-          });
+          let videoOut: string | undefined;
+          let plan: ReturnType<typeof planProxy> | undefined;
+          if (m.video) {
+            plan = planProxy(m.video, this.opts.ffmpegStatus(), codec);
+            videoOut = path.join(proxiesDir(folder), `${id}.mp4`);
+            await generateProxy(fromStoredPath(folder, m.path), videoOut, plan, duration, { ...base, onProgress: (p) => progress(p * videoShare) });
+          }
+          let audioOut: string | undefined;
+          if (m.audio) {
+            audioOut = path.join(proxiesDir(folder), `${id}.wav`);
+            await generateAudioProxy(fromStoredPath(folder, m.path), audioOut, planAudioProxy(m.audio, m.video), duration, { ...base, onProgress: (p) => progress(videoShare + p * (1 - videoShare)) });
+          }
           this.patchMedia(id, (x) => {
-            x.proxyPath = toStoredPath(folder, out);
-            x.proxy = { width: plan.width, height: plan.height, fps: plan.fps };
+            if (videoOut && plan) {
+              x.proxyPath = toStoredPath(folder, videoOut);
+              x.proxy = { width: plan.width, height: plan.height, fps: plan.fps, codec: plan.codec };
+              for (const w of plan.warnings) if (!x.warnings.includes(w)) x.warnings.push(w);
+            }
+            if (audioOut) x.audioProxyPath = toStoredPath(folder, audioOut);
             x.status.proxy = 'done';
-            for (const w of plan.warnings) if (!x.warnings.includes(w)) x.warnings.push(w);
           });
         } catch (e) {
           const aborted = e instanceof ProcessAbortedError;
@@ -496,6 +527,7 @@ export class ProjectManager extends EventEmitter<Events> {
     const { folder } = this.requireProject();
     this.opts.jobs.cancelForMedia(media.id);
     if (media.proxyPath) await fs.rm(fromStoredPath(folder, media.proxyPath), { force: true });
+    if (media.audioProxyPath) await fs.rm(fromStoredPath(folder, media.audioProxyPath), { force: true });
     await fs.rm(cacheDir(folder, media.id), { recursive: true, force: true });
   }
 
@@ -503,13 +535,15 @@ export class ProjectManager extends EventEmitter<Events> {
   async reproxy(id: string): Promise<Media> {
     const m = this.findMedia(id);
     if (!m) throw new ProjectError('no_such_media', `No media with id ${id}.`, 404);
-    if (m.type !== 'video') throw new ProjectError('not_video', 'Only video media has a proxy.');
+    if (m.type === 'image') throw new ProjectError('not_video', 'Still images do not have a proxy.');
     if (m.missing) throw new ProjectError('media_missing', 'The source file is missing; relink it first.', 409);
     const { folder } = this.requireProject();
     this.opts.jobs.cancelForMedia(id);
     if (m.proxyPath) await fs.rm(fromStoredPath(folder, m.proxyPath), { force: true });
+    if (m.audioProxyPath) await fs.rm(fromStoredPath(folder, m.audioProxyPath), { force: true });
     const updated = this.patchMedia(id, (x) => {
       delete x.proxyPath;
+      delete x.audioProxyPath;
       delete x.proxy;
       x.status.proxy = 'pending';
     })!;
@@ -584,6 +618,7 @@ export class ProjectManager extends EventEmitter<Events> {
         x.status.probe = 'done';
         delete x.proxy;
         delete x.proxyPath;
+        delete x.audioProxyPath;
         delete x.posterPath;
       }
     })!;
