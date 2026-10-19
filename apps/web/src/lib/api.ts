@@ -8,6 +8,8 @@ import type {
   Media,
   ProjectResponse,
   ProjectSettings,
+  ProxyCodec,
+  ProxySettingsResponse,
   RecentProject,
   ScanReport,
   Sequence,
@@ -73,10 +75,11 @@ export const api = {
   edit: (req: EditRequest) => request<EditResponse>('POST', '/api/edit', req),
   undo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/undo'),
   redo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/redo'),
+  setProxyCodec: (codec: ProxyCodec) => request<ProxySettingsResponse>('PUT', '/api/settings/proxy-codec', { codec }),
   cancelJob: (id: string) => request<{ canceled: boolean }>('POST', `/api/jobs/${id}/cancel`),
 };
 
-export type MediaFileKind = 'original' | 'proxy' | 'poster';
+export type MediaFileKind = 'original' | 'proxy' | 'audio' | 'poster';
 export const mediaUrl = (id: string, kind: MediaFileKind, version?: string | number): string =>
   `/api/media/${id}/file/${kind}${version === undefined ? '' : `?v=${version}`}`;
 

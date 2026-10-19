@@ -3,6 +3,7 @@ import type { HealthResponse, JobInfo, Media, ProjectResponse, RecentProject, Sc
 import { ApiError, api, uploadFile } from '../lib/api';
 import type { PendingUpload } from '../lib/dropped';
 import { connectSocket, type SocketHandle } from '../lib/ws';
+import { probeProxyCodec } from '../playback/videoSource';
 import { applyServerEvent, type LiveState } from './events';
 
 export interface UploadItem {
@@ -85,6 +86,8 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         const health = await api.health();
         set({ health, fatal: null });
+        // Proxies must be in a format this browser can decode; tell the server before any project loads.
+        await probeProxyCodec().then((codec) => api.setProxyCodec(codec)).catch(() => undefined);
         const [recent] = await Promise.all([api.recent().catch(() => []), health.hasProject ? api.getProject().then((r) => get().setProjectFromResponse(r)) : null]);
         set({ recent });
       } catch (e) {
