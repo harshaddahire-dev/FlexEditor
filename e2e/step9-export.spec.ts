@@ -138,3 +138,82 @@ test('cancel stops the render and leaves no file; the dialog explains and can st
   await dlg.getByRole('button', { name: 'Back' }).click();
   await expect(dlg.getByRole('button', { name: 'Start render' })).toBeEnabled();
 });
+
+test('both engines draw the same picture: transform, stacking, opacity, effect and a dissolve agree within codec noise', async ({ page, request }) => {
+  const dir = process.env.E2E_COLORS!;
+  const { resetFolder } = await import('./helpers');
+  await resetFolder(request, dir);
+  await page.goto('/');
+  await page.getByLabel('Project folder path').fill(dir);
+  await page.getByRole('button', { name: 'Open', exact: true }).click();
+  await page.waitForFunction(() => {
+    const m = Object.values((window as unknown as { __cutroom: { useApp: { getState(): { media: Record<string, { name: string; status: { proxy: string } }> } } } }).__cutroom.useApp.getState().media);
+    return ['red.mp4', 'blue.mp4'].every((n) => m.some((x) => x.name === n && x.status.proxy === 'done'));
+  }, undefined, { timeout: 60_000 });
+
+  const st = await page.evaluate(() => {
+    const s = (window as unknown as { __cutroom: { useApp: { getState(): { media: Record<string, { id: string; name: string }>; sequence: { width: number; height: number; timebase: { rate: number }; tracks: { id: string; name: string }[] } } } } }).__cutroom.useApp.getState();
+    return { media: Object.values(s.media), tracks: s.sequence.tracks, R: s.sequence.timebase.rate, W: s.sequence.width, H: s.sequence.height };
+  });
+  const mid = (n: string) => st.media.find((m) => m.name === n)!.id;
+  const tid = (n: string) => st.tracks.find((t) => t.name === n)!.id;
+  const R = st.R;
+  await edit(page, [
+    { type: 'overwrite', at: 0, clips: [{ trackId: tid('V1'), mediaId: mid('red.mp4'), sourceIn: 0.5 * R, sourceOut: 2.5 * R }] },
+    { type: 'overwrite', at: 2 * R, clips: [{ trackId: tid('V1'), mediaId: mid('blue.mp4'), sourceIn: 0.5 * R, sourceOut: 2.5 * R }] },
+    { type: 'overwrite', at: 0.5 * R, clips: [{ trackId: tid('V2'), mediaId: mid('red.mp4'), sourceIn: 0.5 * R, sourceOut: 2.9 * R }] },
+  ], 'Build scene');
+  const seq = (await page.request.get('/api/sequence')).json() as Promise<{ sequence: { tracks: { name: string; items: Record<string, { id: string; start: number; mediaId: string }>; transitions: unknown[] }[] } }>;
+  const tracks = (await seq).sequence.tracks;
+  const v1 = Object.values(tracks.find((t) => t.name === 'V1')!.items).sort((a, b) => a.start - b.start);
+  const over = Object.values(tracks.find((t) => t.name === 'V2')!.items)[0]!;
+  await edit(page, [
+    { type: 'addTransition', betweenClipIds: [v1[0]!.id, v1[1]!.id], transitionType: 'dissolve', duration: R, alignment: 'center' },
+    { type: 'applyEffect', clipId: v1[1]!.id, effect: { type: 'color', params: { saturation: 0.5 } } },
+    { type: 'setClipProps', clipId: over.id, patch: { transform: { scale: { x: 0.4, y: 0.4 }, position: { x: 100, y: 50 }, opacity: 0.6 } } },
+  ], 'Style scene');
+
+  const files: string[] = [];
+  for (const engine of ['Browser (WebCodecs)', 'FFmpeg'] as const) {
+    const dlg = await openRender(page);
+    await dlg.getByRole('radio', { name: /VP9 · WebM/ }).click();
+    await dlg.getByLabel('Renderer').selectOption({ label: engine });
+    if (engine.startsWith('Browser')) await dlg.getByLabel(/Draft: render from proxies/).check();
+    await dlg.getByLabel('File name').fill(engine.startsWith('Browser') ? 'web' : 'ffm');
+    await dlg.getByRole('button', { name: 'Start render' }).click();
+    await expect(dlg.getByTestId('render-done')).toBeVisible({ timeout: 120_000 });
+    files.push((await lastExport(page)).output!);
+    await dlg.getByRole('button', { name: 'Close', exact: true }).last().click();
+  }
+
+  const px = async (file: string, n: number, x: number, y: number) => {
+    const r = await runBinary('ffmpeg', ['-v', 'error', '-i', file, '-vf', `select=eq(n\\,${n}),format=rgb24,crop=1:1:${x}:${y}`, '-vsync', '0', '-frames:v', '1', '-f', 'rawvideo', '-']);
+    expect(r.stdout.length).toBe(3);
+    return [...r.stdout];
+  };
+  const W = st.W;
+  const H = st.H;
+  const fit = Math.min(W / 640, H / 360); // overlay is the 640×360 colour clip, scaled 0.4 and shifted
+  void fit;
+  const points: [string, number, number, number][] = [
+    ['red under the overlay edge', 10, 20, 20],
+    ['dissolve midpoint, away from the overlay', 60, 20, 20],
+    ['overlay over red (0.6 opacity)', 30, W / 2 + 100, H / 2 + 50],
+    ['dissolve midpoint, centre', 60, W / 2, H / 2],
+    ['desaturated blue, overlay over it', 81, W / 2 + 100, H / 2 + 50],
+    ['desaturated blue, corner', 100, 20, 20],
+  ];
+  for (const [label, n, x, y] of points) {
+    const a = await px(files[0]!, n, Math.round(x), Math.round(y));
+    const b = await px(files[1]!, n, Math.round(x), Math.round(y));
+    a.forEach((v, i) => expect(Math.abs(v - b[i]!), `${label}: browser ${a} vs ffmpeg ${b}`).toBeLessThanOrEqual(28));
+  }
+  // and the picture is what we described, not just self-consistent
+  const dis = await px(files[1]!, 60, 20, 20); // away from the overlay: half red, half desaturated blue
+  expect(dis[0]).toBeGreaterThan(90);
+  expect(dis[2]).toBeGreaterThan(40);
+  const desat = await px(files[0]!, 100, 20, 20);
+  expect(desat[2]).toBeGreaterThan(100);
+  expect(desat[2]).toBeLessThan(180);
+  expect(desat[0]).toBeGreaterThan(0);
+});
