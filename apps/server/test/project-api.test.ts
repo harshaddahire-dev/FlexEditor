@@ -449,7 +449,7 @@ describe('websocket', () => {
     const types = new Set(events.map((e) => e.type));
     expect(types).toEqual(new Set(['hello', 'project', 'media', 'job', 'scan']));
     const done = events.filter((e): e is Extract<ServerEvent, { type: 'job' }> => e.type === 'job' && e.job.state === 'done');
-    expect(done.map((e) => e.job.kind).sort()).toEqual(['poster', 'proxy']);
+    expect(done.map((e) => e.job.kind).sort()).toEqual(['analysis', 'analysis', 'poster', 'proxy']); // audio + video analysis follow the proxy
     expect(events.some((e) => e.type === 'job' && e.job.kind === 'proxy' && e.job.state === 'running')).toBe(true);
     const lastMedia = [...events].reverse().find((e) => e.type === 'media') as Extract<ServerEvent, { type: 'media' }>;
     expect(lastMedia.media.status.proxy).toBe('done');

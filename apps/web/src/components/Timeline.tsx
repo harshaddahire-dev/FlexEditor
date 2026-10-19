@@ -6,6 +6,7 @@ import { dryRun, makeEnv } from '../lib/env';
 import { mediaUrl } from '../lib/api';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
+import { filmstripOf, silencesOf, useAnalysis, waveformOf } from '../store/analysis';
 import { useUi } from '../store/ui';
 import { CommandError, expandLinked, moveSelection, placeMedia, selectForward, splitClipAt } from '../timeline/commands';
 import { HEADER_W, RULER_H, hitTest, snapPoints, snapTicks, trackRows, xToTicks, type Hit } from '../timeline/geometry';
@@ -184,6 +185,9 @@ function TimelineBody() {
       seq: s, view: t.view, theme: theme.current, width: w, height: h, playhead: t.playhead, inPoint: t.inPoint, outPoint: t.outPoint,
       selection: t.selection, hoverId: hover.current, preview: preview.current, snapGuide: guide.current,
       mediaName: (id) => app.media[id]?.name,
+      waveform: (id) => waveformOf(app.media[id]),
+      filmstrip: (id) => filmstripOf(app.media[id]),
+      silences: (id) => silencesOf(app.media[id]),
       poster: (id) => {
         const m = app.media[id];
         if (!m || m.status.poster !== 'done') return null;
@@ -231,7 +235,7 @@ function TimelineBody() {
   }, [themeName, invalidate]);
 
   useEffect(() => {
-    const unsub = [useTimeline.subscribe(invalidate), useApp.subscribe(invalidate)];
+    const unsub = [useTimeline.subscribe(invalidate), useApp.subscribe(invalidate), useAnalysis.subscribe(invalidate)];
     invalidate();
     return () => unsub.forEach((u) => u());
   }, [invalidate]);

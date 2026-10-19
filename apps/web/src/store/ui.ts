@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { readBool, writeBool } from '../lib/layout';
 
 export type Workspace = 'edit' | 'audio' | 'captions' | 'color';
-export type LeftTab = 'media' | 'captions' | 'effects' | 'transitions' | 'skills';
+export type LeftTab = 'media' | 'transcript' | 'captions' | 'effects' | 'transitions' | 'skills';
 export type Theme = 'dark' | 'light';
 
 const WORKSPACE_TAB: Record<Workspace, LeftTab> = { edit: 'media', audio: 'media', captions: 'captions', color: 'effects' };

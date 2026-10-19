@@ -1,4 +1,6 @@
 import { type Clip, type Sequence, type Track, type TrackItem, frameTicks, isClip, itemEnd } from '@cutroom/core';
+import type { FilmstripData, SilenceData, WaveformData } from '../store/analysis';
+import { drawSilences, drawWaveform } from './waveform';
 import { RULER_H, type View, rulerTicks, ticksToX, trackRows, visibleItems } from './geometry';
 
 export interface Theme {
@@ -44,6 +46,10 @@ export interface DrawParams {
   /** Poster image for a media id, if loaded. */
   poster?: (mediaId: string) => CanvasImageSource | null;
   mediaName?: (mediaId: string) => string | undefined;
+  /** Media intelligence caches (null until loaded). */
+  waveform?: (mediaId: string) => WaveformData | null;
+  filmstrip?: (mediaId: string) => FilmstripData | null;
+  silences?: (mediaId: string) => SilenceData | null;
 }
 
 const kindColor = (t: Theme, kind: Track['kind']): string => ({ video: t.clipVideo, audio: t.clipAudio, caption: t.clipCaption, graphics: t.clipGraphics })[kind];
@@ -89,8 +95,24 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
     ctx.fillStyle = 'rgba(255,255,255,0.10)';
     ctx.fillRect(x0, y, w, Math.min(15, h));
   }
-  // video thumbnail at the head of the clip
-  if (clip && track.kind === 'video' && h > 26 && p.poster) {
+  // video: filmstrip tiles across the clip, falling back to the poster at its head
+  const strip = clip && track.kind === 'video' && h > 26 ? p.filmstrip?.(clip.mediaId) : null;
+  if (clip && strip) {
+    const th = h - 15;
+    const tw = Math.max(8, Math.round((th * strip.thumbW) / strip.thumbH));
+    const speed = clip.speed.num / clip.speed.den;
+    const first = Math.max(x0, 0);
+    const last = Math.min(x1, view.width);
+    ctx.globalAlpha = (ghost ? 0.55 : 1) * 0.9;
+    for (let tx = x0 + Math.floor((first - x0) / tw) * tw; tx < last; tx += tw) {
+      const mid = clip.start + ((Math.min(Math.max(tx + tw / 2, x0), x1) - x0) / view.pps) * rate; // timeline ticks at the tile centre
+      const srcSec = (clip.sourceIn + (mid - clip.start) * speed) / rate;
+      const idx = Math.max(0, Math.min(strip.count - 1, Math.floor(srcSec / strip.interval)));
+      const sw = Math.min(tw, x1 - tx);
+      ctx.drawImage(strip.image, (idx % strip.cols) * strip.thumbW, Math.floor(idx / strip.cols) * strip.thumbH, (strip.thumbW * sw) / tw, strip.thumbH, tx, y + 15, sw, th);
+    }
+    ctx.globalAlpha = ghost ? 0.55 : 1;
+  } else if (clip && track.kind === 'video' && h > 26 && p.poster) {
     const img = p.poster(clip.mediaId);
     if (img && w > h * 1.6 + 24) {
       const th = h - 16;
@@ -99,8 +121,13 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
       ctx.globalAlpha = ghost ? 0.55 : 1;
     }
   }
-  // audio: centre line and fades
+  // audio: waveform, silences, centre line and fades
   if (clip && track.kind === 'audio' && h > 22) {
+    const box = { x0, x1, y: y + 15, h: h - 15 };
+    const sil = p.silences?.(clip.mediaId);
+    if (sil) drawSilences(ctx, sil, clip, rate, view, box, 'rgba(0,0,0,0.28)');
+    const wf = p.waveform?.(clip.mediaId);
+    if (wf) drawWaveform(ctx, wf, clip, rate, view, box, 'rgba(255,255,255,0.78)', 10 ** (clip.audio.gainDb / 20));
     ctx.strokeStyle = 'rgba(255,255,255,0.28)';
     ctx.lineWidth = 1;
     const cy = Math.round(y + 15 + (h - 15) / 2) + 0.5;

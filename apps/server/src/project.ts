@@ -20,6 +20,9 @@ import {
   isSupportedExtension,
   toNumber,
 } from '@cutroom/core';
+import { MediaAnalysis } from './analysis/pipeline';
+import { SERVABLE } from './analysis/pipeline';
+import type { WhisperInstall } from './analysis/whisper';
 import { AppDb, ProjectDb } from './db';
 import { EditRequestError, EditSession, type SessionEvent } from './edit';
 import type { JobQueue } from './jobs';
@@ -50,6 +53,8 @@ export interface ProjectManagerOptions {
   /** Debounce for autosave of project.json (spec: 1 s). */
   saveDelayMs?: number;
   probeConcurrency?: number;
+  /** Where whisper.cpp lives, if anywhere. Default: look on PATH / env / the app data models folder. */
+  whisper?: () => Promise<WhisperInstall | null>;
 }
 
 type Events = {
@@ -91,8 +96,20 @@ export class ProjectManager extends EventEmitter<Events> {
   /** Serialises imports of the same path (scan + upload can race). */
   private readonly importing = new Map<string, Promise<ImportOutcome>>();
 
+  /** Waveforms, loudness, scenes, transcript… queued as media becomes ready. */
+  readonly analysis: MediaAnalysis;
+
   constructor(private readonly opts: ProjectManagerOptions) {
     super();
+    this.analysis = new MediaAnalysis({
+      jobs: opts.jobs,
+      ffmpegPath: opts.ffmpegPath,
+      cacheDir: (id) => cacheDir(this.requireProject().folder, id),
+      abs: (stored) => fromStoredPath(this.requireProject().folder, stored),
+      find: (id) => this.findMedia(id),
+      patch: (id, fn) => this.patchMedia(id, fn),
+      whisper: opts.whisper ?? (async () => null),
+    });
     this.saveDelay = opts.saveDelayMs ?? 1000;
     opts.jobs.on('update', (j) => {
       if (!this.db || !['done', 'failed', 'canceled'].includes(j.state)) return;
@@ -133,6 +150,13 @@ export class ProjectManager extends EventEmitter<Events> {
 
   findMedia(id: string): Media | undefined {
     return this.project?.media.find((m) => m.id === id);
+  }
+
+  /** Absolute path of a cached analysis result (waveform, transcript…), or null if it is not ready. */
+  analysisFile(media: Media, name: string): { file: string; type: string } | null {
+    const entry = SERVABLE[name];
+    if (!entry) return null;
+    return { file: path.join(cacheDir(this.requireProject().folder, media.id), entry.file), type: entry.type };
   }
 
   mediaFile(media: Media, kind: 'original' | 'proxy' | 'audio' | 'poster'): string | null {
@@ -432,6 +456,7 @@ export class ProjectManager extends EventEmitter<Events> {
     if (m.type === 'image' && m.status.proxy !== 'skipped') this.patchMedia(m.id, (x) => void (x.status.proxy = 'skipped'));
     if (m.status.poster === 'pending') this.queuePoster(m.id);
     if (m.type !== 'image' && m.status.proxy === 'pending') this.queueProxy(m.id);
+    await this.analysis.ensure(m.id).catch(() => undefined); // waits for the proxy by itself: ensure() is re-run when it lands
   }
 
   /** The browser's decoding abilities changed: regenerate every proxy that was made for another codec. */
@@ -511,6 +536,7 @@ export class ProjectManager extends EventEmitter<Events> {
             if (audioOut) x.audioProxyPath = toStoredPath(folder, audioOut);
             x.status.proxy = 'done';
           });
+          void this.analysis.ensure(id).catch(() => undefined);
         } catch (e) {
           const aborted = e instanceof ProcessAbortedError;
           this.patchMedia(id, (x) => {

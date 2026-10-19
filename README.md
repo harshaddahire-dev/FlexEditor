@@ -4,10 +4,10 @@ A local-first, browser-based non-linear video editor where AI agents perform the
 Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001`
 that owns the project folder, FFmpeg, the analysis cache and (later) all model calls.
 
-> **Status: build steps 1–3 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
+> **Status: build steps 1–4 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
 > undo/redo, a canvas timeline, a WebCodecs + WebGL program monitor and a Web Audio mix are working and tested —
 > including an automated proof that picture and sound stay on the same instant through split, trim, ripple and
-> speed edits. Media intelligence, agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
+> speed edits. Media intelligence (waveforms, filmstrip, loudness, silences, scenes, beats, transcript) is in too. Agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
 
 ## Requirements
 
@@ -70,6 +70,25 @@ handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timec
   `AudioContext` timeline at exact sample times; the audio clock is the playback master clock. Export uses the *same* slices through
   an `OfflineAudioContext`, so playback and export are the same samples.
 
+## Media intelligence
+
+After the proxies exist, every file is analysed in the background; results are cached under `.cutroom/cache/<media>/` and summarised in
+`media.analysis` (what agents read without loading the whole thing). Reopening a folder only redoes what is missing.
+
+| Stage | How | Output |
+|---|---|---|
+| Waveform | min/max peaks per 256 samples over the 48 kHz PCM proxy | `waveform.bin` (Int16 pairs; the timeline builds coarser levels) |
+| Silences | 10 ms RMS windows < −40 dBFS lasting ≥ 0.3 s | sample-exact ranges |
+| Loudness | ITU-R BS.1770-4 K-weighting + gating: integrated LUFS, LRA, momentary/short-term max, 4× true peak | checked against FFmpeg `ebur128` in tests |
+| Beats | spectral-flux onsets → autocorrelation tempo → dynamic-programming beat tracker | bpm, confidence, beat times |
+| Scenes | FFmpeg scene score on the CFR proxy | frame-exact cuts |
+| Filmstrip | one sprite sheet of thumbnails | drawn on timeline clips |
+| Transcript | whisper.cpp, one word per segment so every word has its own timing | words + sentence segments |
+
+**Transcription** needs whisper.cpp and a ggml model; without them the stage shows *needs whisper.cpp* (everything else still works).
+Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again*
+in the Transcript tab.
+
 ## Repository layout
 
 ```
@@ -103,7 +122,7 @@ The server can read folders you point it at, so it only talks to pages on this m
 1. ✅ Monorepo, FFmpeg check, project open/upload, import, ffprobe, proxies
 2. ✅ Time model + timeline data model + edit engine + undo/redo + property tests
 3. ✅ Timeline canvas, WebCodecs + WebGL compositor, audio graph, shortcuts
-4. Media intelligence (waveforms, transcript, silences, scenes, beats, loudness)
+4. ✅ Media intelligence (waveforms, filmstrip, transcript, silences, scenes, beats, loudness)
 5. Providers, settings, key storage, model/effort/mode selectors
 6. Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff
 7. Keyframes, motion, transitions, effects, captions

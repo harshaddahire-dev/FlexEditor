@@ -25,6 +25,18 @@ function info(m: Media, fps: Parameters<typeof formatDuration>[1]): [string, str
   }
   if (m.audio) rows.push(['Audio', `${m.audio.codec} · ${m.audio.channels} ch · ${m.audio.sampleRate / 1000} kHz`]);
   if (m.proxy) rows.push(['Proxy', `${m.proxy.width}×${m.proxy.height} @ ${formatFps(m.proxy.fps)} fps`]);
+  const a = m.analysis as Record<string, Record<string, number | string | null> | undefined>;
+  const l = a.loudness;
+  if (l && typeof l.integrated === 'number') rows.push(['Loudness', `${l.integrated.toFixed(1)} LUFS · range ${Number(l.range).toFixed(1)} LU · peak ${Number(l.truePeak).toFixed(1)} dBTP`]);
+  else if (l) rows.push(['Loudness', 'silent']);
+  const b = a.beats;
+  if (b && Number(b.bpm) > 0 && Number(b.confidence) > 0.3) rows.push(['Tempo', `${Number(b.bpm).toFixed(0)} BPM`]);
+  const si = a.silences;
+  if (si) rows.push(['Silence', `${si.count} gap${si.count === 1 ? '' : 's'} · ${Number(si.totalSeconds).toFixed(1)} s`]);
+  const sc = a.scenes;
+  if (sc) rows.push(['Shots', `${Number(sc.count) + 1}`]);
+  const tr = a.transcript;
+  if (tr && typeof tr.words === 'number') rows.push(['Transcript', `${tr.words} words · ${tr.language}`]);
   rows.push(['Path', m.path]);
   return rows;
 }
@@ -71,10 +83,10 @@ export function Viewer() {
   const status = useViewerStatus();
   const [mode, setMode] = useState<Mode>('program');
   const host = useRef<HTMLDivElement>(null);
-  const selectedId = useApp((s) => s.selectedMediaId);
+  const picks = useApp((s) => s.picks);
   useEffect(() => {
-    if (selectedId) setMode('source');
-  }, [selectedId]);
+    if (picks > 0 && useApp.getState().selectedMediaId) setMode('source');
+  }, [picks]);
   const mounted = !!project;
   useEffect(() => {
     if (!mounted || !host.current) return;

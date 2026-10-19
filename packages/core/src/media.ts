@@ -50,14 +50,16 @@ export interface AudioStreamInfo {
 }
 
 /** pending: nothing scheduled · queued: job waiting · running: job active */
-export type AnalysisState = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'skipped';
+/** unavailable: a required tool (e.g. whisper.cpp) is not installed — distinct from failed, and retried when it appears. */
+export type AnalysisState = 'pending' | 'queued' | 'running' | 'done' | 'failed' | 'skipped' | 'unavailable';
 
 export interface MediaStatus {
   probe: AnalysisState;
   poster: AnalysisState;
   proxy: AnalysisState;
-  /** Filled in by the media-intelligence step. */
   waveform: AnalysisState;
+  /** Timeline filmstrip (thumbnail sprite). */
+  filmstrip: AnalysisState;
   transcript: AnalysisState;
   silences: AnalysisState;
   scenes: AnalysisState;
@@ -132,6 +134,7 @@ export function emptyStatus(): MediaStatus {
     poster: 'pending',
     proxy: 'pending',
     waveform: 'pending',
+    filmstrip: 'pending',
     transcript: 'pending',
     silences: 'pending',
     scenes: 'pending',

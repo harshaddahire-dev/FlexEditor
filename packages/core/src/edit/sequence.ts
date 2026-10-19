@@ -23,7 +23,7 @@ export function makeTrack(id: string, kind: TrackKind, name: string): Track {
     locked: false,
     muted: false,
     solo: false,
-    height: kind === 'audio' ? 48 : 32,
+    height: kind === 'audio' ? 48 : kind === 'video' ? 56 : 32,
     crossfadeMs: kind === 'audio' ? DEFAULT_CROSSFADE_MS : 0,
     items: {},
     transitions: [],

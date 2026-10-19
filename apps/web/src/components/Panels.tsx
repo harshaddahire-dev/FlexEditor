@@ -2,10 +2,12 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { PanelRightClose } from 'lucide-react';
 import { useUi, type LeftTab } from '../store/ui';
 import { MediaBin } from './MediaBin';
+import { TranscriptPanel } from './TranscriptPanel';
 import { ICON, Tip } from './ui';
 
 const TABS: { id: LeftTab; label: string; empty?: string }[] = [
   { id: 'media', label: 'Media' },
+  { id: 'transcript', label: 'Transcript' },
   { id: 'captions', label: 'Captions', empty: 'Caption styles and generated captions will be listed here.' },
   { id: 'effects', label: 'Effects', empty: 'Effects, LUTs and motion presets will be listed here.' },
   { id: 'transitions', label: 'Transitions', empty: 'GLSL transitions will be listed here.' },
@@ -24,7 +26,7 @@ export function LeftPanel() {
         </Tabs.List>
         {TABS.map((t) => (
           <Tabs.Content key={t.id} className="tabs__content" value={t.id}>
-            {t.id === 'media' ? <MediaBin /> : <div className="empty"><p>{t.empty}</p></div>}
+            {t.id === 'media' ? <MediaBin /> : t.id === 'transcript' ? <TranscriptPanel /> : <div className="empty"><p>{t.empty}</p></div>}
           </Tabs.Content>
         ))}
       </Tabs.Root>

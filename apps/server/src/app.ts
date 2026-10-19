@@ -7,6 +7,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { EditRequest, FfmpegStatus, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
+import { findWhisper, type WhisperInstall } from './analysis/whisper';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
 import { checkFfmpeg } from './ffmpeg';
@@ -33,6 +34,8 @@ export interface BuildOptions {
   ffmpegStatus?: FfmpegStatus;
   saveDelayMs?: number;
   jobConcurrency?: number;
+  /** Override whisper.cpp discovery (tests). */
+  whisper?: () => Promise<WhisperInstall | null>;
 }
 
 export async function buildApp(config: ServerConfig, options: BuildOptions = {}): Promise<BuiltApp> {
@@ -42,7 +45,9 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   let ffmpeg: FfmpegStatus = options.ffmpegStatus ?? (await checkFfmpeg(config.ffmpegPath, config.ffprobePath));
   const appDb = new AppDb(path.join(config.dataDir, 'app.sqlite'));
   const jobs = new JobQueue(options.jobConcurrency ?? 2);
+  const whisper = options.whisper ?? (() => findWhisper(config.dataDir));
   const manager = new ProjectManager({
+    whisper,
     ffmpegPath: config.ffmpegPath,
     ffprobePath: config.ffprobePath,
     ffmpegStatus: () => ffmpeg,
@@ -99,13 +104,19 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   });
 
   /* ---- health / setup ---- */
-  app.get('/api/health', async (): Promise<HealthResponse> => ({
-    app: 'cutroom',
-    version: APP_VERSION,
-    ffmpeg,
-    dataDir: config.dataDir,
-    hasProject: !!manager.current,
-  }));
+  app.get('/api/health', async (): Promise<HealthResponse> => {
+    const w = await whisper();
+    return {
+      app: 'cutroom',
+      version: APP_VERSION,
+      ffmpeg,
+      dataDir: config.dataDir,
+      hasProject: !!manager.current,
+      whisper: w
+        ? { available: true, model: path.basename(w.model) }
+        : { available: false, hint: `Install whisper.cpp and a ggml model, then set WHISPER_CPP_BIN / WHISPER_MODEL (or put ggml-*.bin in ${path.join(config.dataDir, 'models')}).` },
+    };
+  });
 
   app.post('/api/health/recheck', async () => {
     ffmpeg = await checkFfmpeg(config.ffmpegPath, config.ffprobePath);
@@ -288,6 +299,24 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     const file = manager.mediaFile(media, kind);
     if (!file) throw new ProjectError('not_ready', `The ${kind} is not available yet.`, 404);
     return sendFile(req, reply, file, kind === 'original' ? 'no-cache' : 'private, max-age=0, must-revalidate');
+  });
+
+  /** Cached analysis results: waveform(.bin), silences, loudness, beats, scenes, filmstrip(.jpg), transcript. */
+  app.get<{ Params: { id: string; name: string } }>('/api/media/:id/analysis/:name', async (req, reply) => {
+    const media = manager.findMedia(req.params.id);
+    if (!media) throw new ProjectError('no_such_media', 'No such media.', 404);
+    const entry = manager.analysisFile(media, req.params.name);
+    if (!entry) throw new ProjectError('bad_request', `Unknown analysis "${req.params.name}".`);
+    if (!(await exists(entry.file))) throw new ProjectError('not_ready', `${req.params.name} is not available yet.`, 404);
+    void reply.type(entry.type);
+    return sendFile(req, reply, entry.file, 'private, max-age=0, must-revalidate');
+  });
+
+  /** Re-run analyses that failed or were unavailable (e.g. after installing whisper.cpp). */
+  app.post<{ Params: { id: string } }>('/api/media/:id/analyze', async (req) => {
+    if (!manager.findMedia(req.params.id)) throw new ProjectError('no_such_media', 'No such media.', 404);
+    await manager.analysis.retry(req.params.id);
+    return manager.findMedia(req.params.id);
   });
 
   app.delete<{ Params: { id: string } }>('/api/media/:id', async (req) => {

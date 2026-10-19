@@ -54,6 +54,8 @@ export interface HealthResponse {
   ffmpeg: FfmpegStatus;
   dataDir: string;
   hasProject: boolean;
+  /** Transcription engine: found, or what is missing. */
+  whisper: { available: boolean; model?: string; hint?: string };
 }
 
 export interface ProjectSummary {

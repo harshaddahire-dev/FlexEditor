@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { type Voice, makeTimebase, planAudio, createSequence, buildClip } from '@cutroom/core';
+import { type Voice, parseWavHeader, makeTimebase, planAudio, createSequence, buildClip } from '@cutroom/core';
 import { detectOnsets, peakDb } from '../src/audio/analyze';
 import { SLICE_SAMPLES, bakeSlice, slicesOf, sourceRange } from '../src/audio/mix';
-import { parseWavHeader } from '../src/audio/pcm';
 import { mixToBlocks } from '../src/audio/scheduler';
 
 const tb = makeTimebase({ num: 30, den: 1 }); // rate 48000: one tick per sample

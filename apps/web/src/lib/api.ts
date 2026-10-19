@@ -76,6 +76,7 @@ export const api = {
   undo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/undo'),
   redo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/redo'),
   setProxyCodec: (codec: ProxyCodec) => request<ProxySettingsResponse>('PUT', '/api/settings/proxy-codec', { codec }),
+  analyze: (id: string) => request<Media>('POST', `/api/media/${id}/analyze`),
   cancelJob: (id: string) => request<{ canceled: boolean }>('POST', `/api/jobs/${id}/cancel`),
 };
 

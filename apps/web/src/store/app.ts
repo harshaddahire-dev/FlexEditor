@@ -22,6 +22,8 @@ interface AppState extends LiveState {
   health: HealthResponse | null;
   recent: RecentProject[];
   wsConnected: boolean;
+  /** Bumped on every bin click, even on the already-selected item — the Viewer shows Source for it. */
+  picks: number;
   uploads: UploadItem[];
   opening: boolean;
   openError: string | null;
@@ -69,6 +71,7 @@ export const useApp = create<AppState>()((set, get) => {
     health: null,
     recent: [],
     wsConnected: false,
+    picks: 0,
     project: null,
     media: {},
     jobs: {},
@@ -186,7 +189,7 @@ export const useApp = create<AppState>()((set, get) => {
     },
 
     selectMedia(id) {
-      set({ selectedMediaId: id });
+      set((s) => ({ selectedMediaId: id, picks: s.picks + 1 }));
     },
 
     async removeMedia(id) {
