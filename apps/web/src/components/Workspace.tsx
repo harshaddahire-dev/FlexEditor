@@ -21,7 +21,7 @@ const TIMELINE = { min: () => Math.round(vh() * 0.38), max: () => Math.round(vh(
 export function Workspace() {
   const rightOpen = useUi((s) => s.rightOpen);
   useEffect(() => startTransport(), []);
-  useEffect(() => void useAgent.getState().load().catch(() => undefined), []);
+  useEffect(() => void useAgent.getState().load().then(() => useAgent.getState().loadChat()).catch(() => undefined), []);
   const [left, setLeft] = usePersistedSize('leftW', 280, LEFT.min, LEFT.max);
   const [right, setRight] = usePersistedSize('rightW', 380, RIGHT.min, RIGHT.max);
   const [timeline, setTimeline] = usePersistedSize('timelineH', Math.round(vh() * 0.4), TIMELINE.min, TIMELINE.max);

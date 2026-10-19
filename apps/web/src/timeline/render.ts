@@ -1,4 +1,5 @@
 import { type Clip, type Sequence, type Track, type TrackItem, frameTicks, isClip, itemEnd } from '@cutroom/core';
+import type { SequenceDiff } from '@cutroom/core';
 import type { FilmstripData, SilenceData, WaveformData } from '../store/analysis';
 import { drawSilences, drawWaveform } from './waveform';
 import { RULER_H, type View, rulerTicks, ticksToX, trackRows, visibleItems } from './geometry';
@@ -52,6 +53,8 @@ export interface DrawParams {
   waveform?: (mediaId: string) => WaveformData | null;
   filmstrip?: (mediaId: string) => FilmstripData | null;
   silences?: (mediaId: string) => SilenceData | null;
+  /** What the agent run under review changed (for the ghost overlay). */
+  review?: SequenceDiff | null;
 }
 
 const kindColor = (t: Theme, kind: Track['kind']): string => ({ video: t.clipVideo, audio: t.clipAudio, caption: t.clipCaption, graphics: t.clipGraphics })[kind];
@@ -182,6 +185,37 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
     }
     ctx.restore();
   }
+}
+
+/**
+ * The review overlay: where removed items used to be (red, dashed) and where changed items used to sit (amber, dashed),
+ * so a run's cuts can be judged on the timeline itself. Added items need no ghost — they carry the "AI" badge.
+ */
+export function drawReview(ctx: CanvasRenderingContext2D, p: DrawParams, diff: SequenceDiff): void {
+  const { seq, view, theme: t, width, height } = p;
+  const rate = seq.timebase.rate;
+  const rows = new Map(trackRows(seq).map((r) => [r.track.id, r]));
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, RULER_H, width, height - RULER_H);
+  ctx.clip();
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  const box = (it: { trackId: string; start: number; duration: number }, stroke: string, fill: string) => {
+    const row = rows.get(it.trackId);
+    if (!row) return;
+    const x0 = ticksToX(it.start, rate, view);
+    const x1 = ticksToX(it.start + it.duration, rate, view);
+    if (x1 < 0 || x0 > width) return;
+    const y = RULER_H + row.y - view.scrollY + 2;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.fillRect(x0, y, Math.max(2, x1 - x0), row.h - 4);
+    ctx.strokeRect(x0 + 0.5, y + 0.5, Math.max(2, x1 - x0) - 1, row.h - 5);
+  };
+  for (const r of diff.removed) box(r, t.danger, 'rgba(240,82,79,0.14)');
+  for (const c of diff.changed) if (c.what.includes('moved') || c.what.includes('trimmed') || c.what.includes('track')) box(c.before, t.warn, 'rgba(232,179,58,0.10)');
+  ctx.restore();
 }
 
 /** Paint the whole timeline canvas (ruler + lanes + playhead). Cost is proportional to what is visible, not to clip count. */
@@ -330,6 +364,8 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void
     ctx.closePath();
     ctx.fill();
   }
+
+  if (p.review) drawReview(ctx, p, p.review);
 
   /* snap guide */
   if (p.snapGuide != null) {

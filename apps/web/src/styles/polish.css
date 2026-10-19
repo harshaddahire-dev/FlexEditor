@@ -1156,3 +1156,300 @@ body {
     transform: rotate(360deg);
   }
 }
+
+/* ---------- agent chat ---------- */
+.agent__thread--chat {
+  display: block;
+  padding: var(--s-3) var(--s-3) var(--s-4);
+}
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-bottom: var(--s-4);
+}
+.msg--user {
+  align-self: flex-end;
+  max-width: 92%;
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 10px 10px 2px 10px;
+  padding: var(--s-2) var(--s-3);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg--agent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.msg__text p {
+  margin: 0 0 var(--s-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.msg__text p:last-child {
+  margin-bottom: 0;
+}
+.msg__text code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-3);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+.msg__note {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.msg__error {
+  display: flex;
+  gap: var(--s-2);
+  align-items: flex-start;
+  color: var(--danger);
+  font-size: 11.5px;
+  padding: var(--s-1) 0;
+  overflow-wrap: anywhere;
+}
+.msg__qa {
+  display: flex;
+  gap: var(--s-2);
+  align-items: center;
+  color: var(--warn);
+  font-size: 11.5px;
+}
+.tcard {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-2);
+  overflow: hidden;
+}
+.tcard[data-state='wait'] {
+  border-color: var(--warn);
+}
+.tcard[data-state='bad'] {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--line));
+}
+.tcard__head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  padding: 5px var(--s-2);
+  text-align: left;
+  color: var(--text-1);
+}
+.tcard__head:hover {
+  background: var(--bg-3);
+}
+.tcard__icon {
+  display: inline-flex;
+  color: var(--text-3);
+  flex: none;
+}
+.tcard[data-state='ok'] .tcard__icon {
+  color: var(--success);
+}
+.tcard[data-state='bad'] .tcard__icon {
+  color: var(--danger);
+}
+.tcard[data-state='wait'] .tcard__icon {
+  color: var(--warn);
+}
+.tcard__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tcard__role {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+.tcard__chev {
+  color: var(--text-3);
+  transition: transform var(--t-fast) var(--ease);
+}
+.tcard__chev[data-open='true'] {
+  transform: rotate(90deg);
+}
+.tcard__err {
+  padding: 0 var(--s-2) 6px 28px;
+  color: var(--danger);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.tcard__ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px var(--s-2);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--warn) 10%, var(--bg-2));
+}
+.tcard__ask > span {
+  flex: 1 1 100%;
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+.tcard__body {
+  margin: 0;
+  padding: var(--s-2) var(--s-3);
+  max-height: 200px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+  background: var(--bg-0);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+}
+.tgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tgroup__head,
+.think__head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  color: var(--text-3);
+  font-size: 11.5px;
+  padding: 2px 0;
+}
+.tgroup__head:hover,
+.think__head:hover {
+  color: var(--text-1);
+}
+.think__body {
+  margin: 4px 0 0;
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-1);
+  padding: var(--s-2) var(--s-3);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.review[data-review='pending'] {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+.review__sum {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.review__chips {
+  display: inline-flex;
+  gap: 4px;
+}
+.rchip {
+  display: inline-block;
+  line-height: 16px;
+}
+.rchip--add,
+.rchip--del,
+.rchip--chg {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 0;
+}
+.rchip--add {
+  background: color-mix(in srgb, var(--success) 22%, transparent);
+  color: var(--success);
+}
+.rchip--del {
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  color: var(--danger);
+}
+.rchip--chg {
+  background: color-mix(in srgb, var(--warn) 22%, transparent);
+  color: var(--warn);
+}
+.review__state {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.review__actions {
+  display: flex;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.review__actions .btn[aria-pressed='true'] {
+  color: var(--accent);
+}
+.composer-wrap {
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
+}
+.composer-wrap .composer {
+  border-top: 0;
+  padding-top: var(--s-2);
+}
+.composer__error {
+  padding: var(--s-2) var(--s-3) 0;
+}
+.suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1);
+  padding: var(--s-2) var(--s-3) 0;
+}
+.suggest__chip {
+  font-size: 11px;
+  color: var(--text-2);
+  padding: 3px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  text-align: left;
+}
+.suggest__chip:hover {
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+
+/* compact agent setup: model on top, effort and mode side by side, a slim context meter */
+.agent__setup {
+  gap: 6px;
+  padding: var(--s-2) var(--s-3);
+}
+.agent__pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-2);
+}
+.agent__pair .seg--fill .seg__btn {
+  font-size: 10.5px;
+  padding: 0 2px;
+}
+.agent__setup .picker {
+  min-height: 34px;
+}
+.agent__setup .ctx {
+  margin-top: 2px;
+}

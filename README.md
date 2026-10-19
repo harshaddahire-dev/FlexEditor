@@ -4,7 +4,7 @@ A local-first, browser-based non-linear video editor where AI agents perform the
 Everything runs on your machine: a Vite/React web app on `:5173` and a Fastify server on `:3001`
 that owns the project folder, FFmpeg, the analysis cache and (later) all model calls.
 
-> **Status: build steps 1–5 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
+> **Status: build steps 1–6 of 10 complete.** Open/upload, ffprobe import, CFR edit proxies, the edit engine with
 > undo/redo, a canvas timeline, a WebCodecs + WebGL program monitor and a Web Audio mix are working and tested —
 > including an automated proof that picture and sound stay on the same instant through split, trim, ripple and
 > speed edits. Media intelligence (waveforms, filmstrip, loudness, silences, scenes, beats, transcript) is in too. Agents, effects and export arrive in the following steps — see [Roadmap](#roadmap).
@@ -106,13 +106,36 @@ the model's context window.
   `reasoning` / a thinking token budget as each API expects. All three are tested against local fake servers that check the exact
   request each provider would receive.
 
+## Agents
+
+Ask in the Agent tab ("remove the silences", "make a 30-second highlight") and watch the timeline change. A **Director** plans the
+edit, does simple edits itself and delegates focused jobs to specialists — **Cutter** (structure, pacing, removing mistakes), **Audio**
+(levels, fades, loudness), **Motion** (keyframed animation), **Captioner**, **Finisher** and **QA** (independent review, never edits).
+Each specialist has its own prompt and only the tools it needs.
+
+- **Typed tools, one engine.** The agents read through `get_overview`, `get_sequence`, `get_transcript`, `get_words`, `get_silences`,
+  `get_scenes`, `get_beats`, `get_loudness`, `validate`, and edit through `add_clip`, `split`, `trim`, `remove_range`, `move_clips`,
+  `set_speed`, `set_clip`, `add_keyframes`… Times are seconds or timecode; every edit becomes the same validated operations the UI uses,
+  so an agent cannot overlap clips, break sync or leave the frame grid — the engine refuses, and the model is told why.
+- **Modes.** *Ask*: every edit waits for your approval (Approve / Deny / Approve all this run). *Auto*: edits apply immediately.
+  *Full access* also lets agents use plugins and external tools. Reads never need approval.
+- **One undo per run.** All edits of a run share a transaction group (`origin: agent:<role>`). The chat card shows what changed
+  (`+4 · −1 · ~2`), with **Keep** (clears the "AI" markers), **Undo all**, and a **Changes** overlay that draws removed and moved
+  items as dashed ghosts on the timeline.
+- **Automatic QA.** After a run, the sequence is audited again; problems the run introduced (flash frames, gaps, desync, audio clicks)
+  go back to the Director for up to two fix rounds. Pre-existing problems are not blamed on the agent.
+- **Safe by construction.** Runs stream over the WebSocket, can be stopped at any point (including while waiting for approval),
+  survive a restart as a transcript in `.cutroom/chat.json`, and run one at a time per project.
+- **Tested without a model.** `packages/agents` is exercised with a scripted stand-in for the model against the real edit engine;
+  the server and e2e suites drive full runs through a fake OpenAI-compatible endpoint.
+
 ## Repository layout
 
 ```
 apps/web         Vite + React 18 + TypeScript (strict), Zustand, Radix primitives, CSS-variable tokens
 apps/server      Fastify + WebSocket + better-sqlite3, FFmpeg/ffprobe orchestration, job queue
 packages/core    Time model, timecode, media/project types, protocol types (shared by web + server)
-packages/agents  (step 6)  Director + specialists + tools
+packages/agents  Director + specialists + typed tools + runtime (model-agnostic, tested with a scripted model)
 packages/plugin-sdk (step 8)  Plugin / skill SDK
 e2e              Playwright end-to-end tests
 ```
@@ -141,7 +164,7 @@ The server can read folders you point it at, so it only talks to pages on this m
 3. ✅ Timeline canvas, WebCodecs + WebGL compositor, audio graph, shortcuts
 4. ✅ Media intelligence (waveforms, filmstrip, transcript, silences, scenes, beats, loudness)
 5. ✅ Providers, settings, key storage, model/effort/mode selectors
-6. Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff
+6. ✅ Agent runtime: Director, specialists, tools, transactions, QA, chat cards, ghost diff
 7. Keyframes, motion, transitions, effects, captions
 8. Skills + plugins + MCP
 9. Export pipeline + job queue

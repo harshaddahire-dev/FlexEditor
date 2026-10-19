@@ -310,6 +310,13 @@ async function* anthropicStream(conn: Conn, req: ChatRequest, signal?: AbortSign
 export function geminiSchema(s: unknown): unknown {
   const o = asObj(s);
   const out: Json = {};
+  // unions (anyOf/oneOf): Gemini has none — a number-or-string argument becomes a string (the tools parse both)
+  const alts = asArr(o.anyOf).length ? asArr(o.anyOf) : asArr(o.oneOf);
+  if (alts.length) {
+    const kinds = alts.map((a) => str(asObj(a).type));
+    const pick = kinds.includes('string') ? alts.find((a) => asObj(a).type === 'string')! : (alts.find((a) => asObj(a).type !== 'null') ?? alts[0]);
+    return { ...(geminiSchema(pick) as Json), ...(str(o.description) ? { description: str(o.description) } : {}) };
+  }
   for (const k of ['type', 'description', 'format', 'enum', 'required', 'nullable']) if (o[k] !== undefined) out[k] = o[k];
   if (typeof out.type === 'string') out.type = out.type.toUpperCase();
   if (o.properties) out.properties = Object.fromEntries(Object.entries(asObj(o.properties)).map(([k, v]) => [k, geminiSchema(v)]));

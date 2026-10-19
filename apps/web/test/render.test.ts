@@ -73,3 +73,25 @@ describe('drawTimeline', () => {
     expect(() => drawTimeline(r.ctx, params(createSequence({ width: 1, height: 1, fps: { num: 24, den: 1 } })))).not.toThrow();
   });
 });
+
+
+describe('review overlay (ghost diff)', () => {
+  it('outlines removed items and the old position of moved/trimmed ones, only on tracks that exist', () => {
+    const seq = bigSequence(3);
+    const v1 = seq.tracks.find((t) => t.name === 'V1')!;
+    const item = (id: string, start: number, trackId = v1.id) => ({ id, trackId, trackName: 'V1', kind: 'clip' as const, name: id, start, duration: 48000 });
+    const diff = {
+      added: [item('new', 0)],
+      removed: [item('gone', 0), item('gone2', 48000), item('lost', 0, 'no-such-track')],
+      changed: [
+        { before: item('m', 96000), after: item('m', 144000), what: ['moved' as const] },
+        { before: item('p', 0), after: item('p', 0), what: ['props' as const] },
+      ],
+    };
+    const a = recorder();
+    drawTimeline(a.ctx, params(seq, { review: null }));
+    const b = recorder();
+    drawTimeline(b.ctx, params(seq, { review: diff }));
+    expect((b.calls.strokeRect ?? 0) - (a.calls.strokeRect ?? 0)).toBe(3); // 2 removed + 1 moved; props-only and unknown track draw nothing
+  });
+});

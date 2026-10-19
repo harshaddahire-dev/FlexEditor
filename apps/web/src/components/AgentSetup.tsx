@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { Command } from 'cmdk';
-import { Bot, Check, ChevronsUpDown, RefreshCw, Send, Settings2 } from 'lucide-react';
+import { Bot, Check, ChevronsUpDown, RefreshCw, Settings2 } from 'lucide-react';
 import { AGENT_MODES, type AgentMode, type Effort, EFFORTS, contextWindowFor } from '@cutroom/core';
 import { useAgent } from '../store/agent';
 import { useUi } from '../store/ui';
+import { AgentThread, Composer } from './AgentChat';
 import { ICON, Tip } from './ui';
 
 const EFFORT_LABEL: Record<Effort, string> = { off: 'Off', low: 'Low', medium: 'Med', high: 'High', max: 'Max' };
@@ -117,8 +118,12 @@ function ModelPicker() {
 }
 
 function ContextMeter() {
-  const { settings, models, providers, contextUsed } = useAgent();
+  const { settings, models, providers, contextUsed, loadModels } = useAgent();
   const provider = providers.find((p) => p.id === settings.providerId);
+  // the context window comes from the provider's model list; fetch it once so the meter can show a limit
+  useEffect(() => {
+    if (provider && settings.model) void loadModels(provider.id);
+  }, [provider, settings.model, loadModels]);
   const known = provider && settings.model ? models[provider.id]?.models.find((m) => m.id === settings.model)?.contextWindow : null;
   const window = known ?? (settings.model ? contextWindowFor(settings.model) : null);
   const ratio = window ? Math.min(1, contextUsed / window) : 0;
@@ -134,66 +139,60 @@ function ContextMeter() {
 
 /** Model, effort, mode and context meter, plus the composer (live once the agent runtime lands). */
 export function AgentSetup() {
-  const { settings, setSettings, providers, loaded } = useAgent();
+  const { settings, setSettings, providers, loaded, turns } = useAgent();
   const openSettings = useUi((s) => s.openSettings);
   const noProvider = loaded && providers.length === 0;
-  const effortIdx = EFFORTS.indexOf(settings.effort);
   const ready = useMemo(() => !!settings.providerId && !!settings.model, [settings]);
 
   return (
     <div className="agent">
       <div className="agent__setup">
         <ModelPicker />
-        <div className="agent__row">
-          <span className="agent__label">Effort</span>
+        <div className="agent__pair">
           <div className="seg seg--fill" role="radiogroup" aria-label="Reasoning effort">
             {EFFORTS.map((e) => (
-              <Tip key={e} label={EFFORT_HINT[e]}>
+              <Tip key={e} label={`Effort: ${EFFORT_HINT[e]}`}>
                 <button role="radio" aria-checked={settings.effort === e} className="seg__btn" data-state={settings.effort === e ? 'on' : 'off'} onClick={() => void setSettings({ effort: e })}>
                   {EFFORT_LABEL[e]}
                 </button>
               </Tip>
             ))}
           </div>
-          <span className="sr-only">Effort level {effortIdx + 1} of {EFFORTS.length}</span>
-        </div>
-        <div className="agent__row">
-          <span className="agent__label">Mode</span>
           <div className="seg seg--fill" role="radiogroup" aria-label="Agent mode">
             {AGENT_MODES.map((m) => (
-              <Tip key={m} label={MODE_HINT[m]}>
-                <button role="radio" aria-checked={settings.mode === m} className="seg__btn" data-state={settings.mode === m ? 'on' : 'off'} onClick={() => void setSettings({ mode: m })}>
-                  {MODE_LABEL[m]}
+              <Tip key={m} label={`${MODE_LABEL[m]}: ${MODE_HINT[m]}`}>
+                <button role="radio" aria-label={MODE_LABEL[m]} aria-checked={settings.mode === m} className="seg__btn" data-state={settings.mode === m ? 'on' : 'off'} onClick={() => void setSettings({ mode: m })}>
+                  {m === 'full' ? 'Full' : MODE_LABEL[m]}
                 </button>
               </Tip>
             ))}
           </div>
         </div>
-        <p className="agent__hint faint">{MODE_HINT[settings.mode]}</p>
         <ContextMeter />
       </div>
 
-      <div className="agent__thread">
-        {noProvider ? (
+      {noProvider ? (
+        <div className="agent__thread">
           <div className="empty empty--center">
             <Settings2 size={26} strokeWidth={1.25} />
             <p>Connect a model provider to start.</p>
             <p className="faint">OpenRouter, OpenAI, Anthropic, Gemini or any OpenAI-compatible server. Keys stay on this machine, encrypted.</p>
             <button className="btn btn--primary" onClick={() => openSettings('providers')}>Add a provider</button>
           </div>
-        ) : (
+        </div>
+      ) : turns.length ? (
+        <AgentThread />
+      ) : (
+        <div className="agent__thread">
           <div className="empty empty--center">
             <Bot size={28} strokeWidth={1.25} />
-            <p>{ready ? 'Ready when the agents are.' : 'Pick a model above.'}</p>
-            <p className="faint">The Director and its specialists arrive in the next build step. They will edit through the same operations the Inspector uses.</p>
+            <p>{ready ? 'What should we cut?' : 'Pick a model above.'}</p>
+            <p className="faint">The Director plans the edit and hands focused jobs to a Cutter, Audio and other specialists. You see every step and can undo the whole run.</p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
-      <form className="composer" onSubmit={(e) => e.preventDefault()}>
-        <textarea className="composer__input" rows={2} placeholder="Describe the edit… (agents arrive in the next step)" disabled aria-label="Message the agent" />
-        <button className="btn btn--primary btn--icon" type="submit" disabled aria-label="Send"><Send size={14} /></button>
-      </form>
+      <Composer />
     </div>
   );
 }

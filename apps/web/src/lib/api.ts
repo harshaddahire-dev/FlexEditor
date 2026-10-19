@@ -6,6 +6,8 @@ import type {
   FsListing,
   HealthResponse,
   AgentSettings,
+  ChatState,
+  ChatTurn,
   ModelInfo,
   ProviderInfo,
   ProviderInput,
@@ -89,6 +91,12 @@ export const api = {
   testProvider: (id: string) => request<ProviderTestResult>('POST', `/api/providers/${id}/test`),
   providerModels: (id: string, refresh = false) => request<{ models: ModelInfo[]; error?: string }>('GET', `/api/providers/${id}/models${refresh ? '?refresh=1' : ''}`),
   setAgentSettings: (s: AgentSettings) => request<AgentSettings>('PUT', '/api/agent/settings', s),
+  agentChat: () => request<ChatState>('GET', '/api/agent/chat'),
+  clearAgentChat: () => request<{ ok: true }>('DELETE', '/api/agent/chat'),
+  startRun: (prompt: string) => request<{ runId: string }>('POST', '/api/agent/runs', { prompt }),
+  approveRun: (runId: string, requestId: string, decision: 'approve' | 'deny' | 'always') => request<{ ok: true }>('POST', `/api/agent/runs/${runId}/approve`, { requestId, decision }),
+  cancelRun: (runId: string) => request<{ ok: true }>('POST', `/api/agent/runs/${runId}/cancel`),
+  reviewRun: (runId: string, action: 'accept' | 'undo' | 'dismiss') => request<ChatTurn>('POST', `/api/agent/runs/${runId}/${action}`),
   cancelJob: (id: string) => request<{ canceled: boolean }>('POST', `/api/jobs/${id}/cancel`),
 };
 

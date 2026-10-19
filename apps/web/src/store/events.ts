@@ -51,5 +51,7 @@ export function applyServerEvent(s: LiveState, e: ServerEvent): Partial<LiveStat
       if (!s.sequence || e.revision !== s.revision + 1) return { sequenceStale: true };
       return { sequence: applyPatches(s.sequence, e.patches as Patch[]), revision: e.revision };
     }
+    case 'agent':
+      return {}; // streamed into the agent store, not the project mirror
   }
 }

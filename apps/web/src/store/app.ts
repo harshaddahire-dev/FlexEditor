@@ -4,6 +4,7 @@ import { ApiError, api, uploadFile } from '../lib/api';
 import type { PendingUpload } from '../lib/dropped';
 import { connectSocket, type SocketHandle } from '../lib/ws';
 import { probeProxyCodec } from '../playback/videoSource';
+import { useAgent } from './agent';
 import { applyServerEvent, type LiveState } from './events';
 
 export interface UploadItem {
@@ -100,6 +101,7 @@ export const useApp = create<AppState>()((set, get) => {
       }
       socket ??= connectSocket(
         (ev) => {
+          if (ev.type === 'agent') return useAgent.getState().onServerEvent(ev);
           set((s) => applyServerEvent(s, ev));
           // missed a patch: fetch the authoritative sequence again
           if (get().sequenceStale) void get().refreshSequence();

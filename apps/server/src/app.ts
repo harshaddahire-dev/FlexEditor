@@ -15,6 +15,7 @@ import { sendFile } from './files';
 import { listDirectory } from './fsBrowse';
 import { JobQueue } from './jobs';
 import { EditRequestError } from './edit';
+import { AgentError, AgentService } from './agent/service';
 import { ProviderError, ProviderService } from './providers';
 import { ProjectError, ProjectManager } from './project';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from './security';
@@ -24,6 +25,7 @@ export const APP_VERSION = '0.1.0';
 
 export interface BuiltApp {
   app: FastifyInstance;
+  agent: AgentService;
   providers: ProviderService;
   manager: ProjectManager;
   jobs: JobQueue;
@@ -71,6 +73,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     if (err instanceof ProjectError) {
       return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     }
+    if (err instanceof AgentError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof ProviderError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof EditRequestError) return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     if (err instanceof UnsafePathError) return reply.code(400).send({ error: 'unsafe_path', message: err.message });
@@ -89,6 +92,19 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     const data = JSON.stringify(event);
     for (const s of sockets) if (s.readyState === 1) s.send(data);
   };
+  const agent = new AgentService(
+    {
+      folder: () => manager.projectFolder,
+      session: () => manager.requireSession(),
+      media: () => manager.current?.media ?? [],
+      analysisPath: (id, name) => {
+        const m = manager.findMedia(id);
+        return m ? (manager.analysisFile(m, name)?.file ?? null) : null;
+      },
+    },
+    providers,
+    (e) => broadcast(e),
+  );
   jobs.on('update', (job) => broadcast({ type: 'job', job }));
   manager.on('media', (media) => broadcast({ type: 'media', media }));
   manager.on('mediaRemoved', (mediaId) => broadcast({ type: 'mediaRemoved', mediaId }));
@@ -191,6 +207,28 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     async (req) => providers.store.setAgent(req.body),
   );
 
+
+  /* ---- agents ---- */
+  app.get('/api/agent/chat', async () => agent.state());
+  app.delete('/api/agent/chat', async () => (await agent.clear(), { ok: true }));
+  app.post<{ Body: { prompt: string } }>(
+    '/api/agent/runs',
+    { schema: { body: { type: 'object', required: ['prompt'], properties: { prompt: { type: 'string', minLength: 1, maxLength: 8000 } } } } },
+    async (req, reply) => reply.code(202).send(await agent.start(req.body.prompt.trim())),
+  );
+  app.post<{ Params: { id: string }; Body: { requestId: string; decision: 'approve' | 'deny' | 'always' } }>(
+    '/api/agent/runs/:id/approve',
+    { schema: { body: { type: 'object', required: ['requestId', 'decision'], properties: { requestId: { type: 'string' }, decision: { enum: ['approve', 'deny', 'always'] } } } } },
+    async (req) => {
+      agent.decide(req.params.id, req.body.requestId, req.body.decision === 'always' ? 'always' : req.body.decision === 'approve');
+      return { ok: true };
+    },
+  );
+  app.post<{ Params: { id: string } }>('/api/agent/runs/:id/cancel', async (req) => (agent.cancel(req.params.id), { ok: true }));
+  app.post<{ Params: { id: string } }>('/api/agent/runs/:id/accept', async (req) => agent.accept(req.params.id));
+  app.post<{ Params: { id: string } }>('/api/agent/runs/:id/undo', async (req) => agent.undo(req.params.id));
+  app.post<{ Params: { id: string } }>('/api/agent/runs/:id/dismiss', async (req) => agent.dismiss(req.params.id));
+
   /* ---- filesystem picker ---- */
   app.get<{ Querystring: { path?: string } }>('/api/fs/list', async (req) => {
     try {
@@ -280,6 +318,9 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
 
   app.post('/api/history/undo', async () => manager.requireSession().undo());
   app.post('/api/history/redo', async () => manager.requireSession().redo());
+  const groupBody = { schema: { body: { type: 'object', required: ['group'], properties: { group: { type: 'string' } } } } } as const;
+  app.post<{ Body: { group: string } }>('/api/history/undo-group', groupBody, async (req) => manager.requireSession().undoGroup(req.body.group));
+  app.post<{ Body: { group: string } }>('/api/history/redo-group', groupBody, async (req) => manager.requireSession().redoGroup(req.body.group));
   app.get('/api/history', async () => {
     manager.requireSession();
     return manager.historyState();
@@ -404,5 +445,5 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     appDb.close();
   });
 
-  return { app, manager, jobs, appDb, providers };
+  return { app, manager, jobs, appDb, providers, agent };
 }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { type AgentSettings, DEFAULT_AGENT_SETTINGS, type ModelInfo, type ProviderInfo, type ProviderInput, type ProviderTestResult } from '@cutroom/core';
+import { type AgentSettings, type ChatTurn, DEFAULT_AGENT_SETTINGS, type ModelInfo, type ProviderInfo, type ProviderInput, type ProviderTestResult, type RunEvent, type ServerEvent } from '@cutroom/core';
 import { api } from '../lib/api';
 
 interface AgentState {
@@ -8,8 +8,14 @@ interface AgentState {
   settings: AgentSettings;
   models: Record<string, { models: ModelInfo[]; error?: string; loading: boolean }>;
   tests: Record<string, ProviderTestResult | 'testing'>;
-  /** Tokens in the running conversation (the agent runtime fills this in). */
+  /** Tokens in the running conversation (from the model's own usage reports). */
   contextUsed: number;
+  turns: ChatTurn[];
+  activeRunId: string | null;
+  sendError: string | null;
+  /** Draw removed/moved items of the run under review on the timeline. */
+  showGhosts: boolean;
+  toggleGhosts(): void;
 
   load(): Promise<void>;
   addProvider(input: ProviderInput): Promise<ProviderInfo>;
@@ -18,6 +24,22 @@ interface AgentState {
   testProvider(id: string): Promise<void>;
   loadModels(id: string, refresh?: boolean): Promise<void>;
   setSettings(patch: Partial<AgentSettings>): Promise<void>;
+
+  loadChat(): Promise<void>;
+  send(prompt: string): Promise<boolean>;
+  decide(runId: string, requestId: string, decision: 'approve' | 'deny' | 'always'): Promise<void>;
+  stop(): Promise<void>;
+  review(runId: string, action: 'accept' | 'undo' | 'dismiss'): Promise<string | null>;
+  clearChat(): Promise<void>;
+  onServerEvent(e: Extract<ServerEvent, { type: 'agent' }>): void;
+}
+
+/** Streaming text arrives in tiny deltas: fold each into the previous block of the same kind. */
+function pushEvent(events: RunEvent[], e: RunEvent): RunEvent[] {
+  const prev = events[events.length - 1];
+  if ((e.type === 'text' || e.type === 'thinking') && prev && prev.type === e.type && prev.role === e.role) return [...events.slice(0, -1), { ...prev, delta: prev.delta + e.delta }];
+  if (e.type === 'usage') return [...events.filter((x) => x.type !== 'usage'), e];
+  return [...events, e];
 }
 
 export const useAgent = create<AgentState>()((set, get) => ({
@@ -27,6 +49,11 @@ export const useAgent = create<AgentState>()((set, get) => ({
   models: {},
   tests: {},
   contextUsed: 0,
+  turns: [],
+  activeRunId: null,
+  sendError: null,
+  showGhosts: true,
+  toggleGhosts: () => set((s) => ({ showGhosts: !s.showGhosts })),
 
   async load() {
     const r = await api.providers();
@@ -79,4 +106,74 @@ export const useAgent = create<AgentState>()((set, get) => ({
     set({ settings: next });
     set({ settings: await api.setAgentSettings(next) });
   },
+
+  async loadChat() {
+    const c = await api.agentChat();
+    const last = c.turns[c.turns.length - 1];
+    const usage = last?.events.filter((e) => e.type === 'usage').at(-1);
+    set({ turns: c.turns, activeRunId: c.activeRunId ?? null, contextUsed: usage?.type === 'usage' ? usage.contextTokens : 0 });
+  },
+
+  async send(prompt) {
+    set({ sendError: null });
+    try {
+      const { runId } = await api.startRun(prompt);
+      set({ activeRunId: runId });
+      return true;
+    } catch (e) {
+      set({ sendError: e instanceof Error ? e.message : String(e) });
+      return false;
+    }
+  },
+
+  async decide(runId, requestId, decision) {
+    await api.approveRun(runId, requestId, decision);
+  },
+
+  async stop() {
+    const id = get().activeRunId;
+    if (id) await api.cancelRun(id).catch(() => undefined);
+  },
+
+  async review(runId, action) {
+    try {
+      const t = await api.reviewRun(runId, action);
+      set((s) => ({ turns: s.turns.map((x) => (x.runId === runId ? t : x)) }));
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  },
+
+  async clearChat() {
+    await api.clearAgentChat();
+    set({ turns: [], contextUsed: 0 });
+  },
+
+  onServerEvent(e) {
+    if (e.kind === 'turn') {
+      set((s) => {
+        const i = s.turns.findIndex((t) => t.runId === e.turn.runId);
+        // keep the richer live event list while a run streams; the server's copy is compacted
+        const turns = i < 0 ? [...s.turns, e.turn] : s.turns.map((t, k) => (k === i ? { ...e.turn, events: e.turn.status === 'running' ? t.events : e.turn.events } : t));
+        return { turns, activeRunId: e.turn.status === 'running' ? e.turn.runId : s.activeRunId === e.turn.runId ? null : s.activeRunId };
+      });
+      return;
+    }
+    set((s) => ({
+      turns: s.turns.map((t) => (t.runId === e.runId ? { ...t, events: pushEvent(t.events, e.event) } : t)),
+      contextUsed: e.event.type === 'usage' ? e.event.contextTokens : s.contextUsed,
+    }));
+  },
 }));
+
+/** The diff of the latest agent run that is still waiting for the user's decision (null when nothing is under review). */
+export function reviewDiff() {
+  const { turns, showGhosts } = useAgent.getState();
+  if (!showGhosts) return null;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    const t = turns[i]!;
+    if (t.review === 'pending' && t.diff && t.status !== 'running') return t.diff;
+  }
+  return null;
+}
