@@ -1,3 +1,4 @@
+import type { Sequence } from './edit/types';
 import type { Rational } from './time';
 
 export type MediaType = 'video' | 'audio' | 'image';
@@ -105,7 +106,7 @@ export interface Project {
   name: string;
   settings: ProjectSettings;
   media: Media[];
-  sequences: unknown[];
+  sequences: Sequence[];
   captionStyles: unknown[];
   history: unknown[];
   /** Files the user removed from the bin; rescans skip them until they are explicitly re-included. */

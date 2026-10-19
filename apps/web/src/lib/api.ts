@@ -1,5 +1,8 @@
 import type {
+  EditRequest,
+  EditResponse,
   FfmpegStatus,
+  HistoryState,
   FsListing,
   HealthResponse,
   Media,
@@ -7,6 +10,7 @@ import type {
   ProjectSettings,
   RecentProject,
   ScanReport,
+  Sequence,
 } from '@cutroom/core';
 
 export class ApiError extends Error {
@@ -65,6 +69,10 @@ export const api = {
   reproxy: (id: string) => request<Media>('POST', `/api/media/${id}/reproxy`),
   relink: (id: string, path: string, force = false) => request<Media>('POST', `/api/media/${id}/relink`, { path, force }),
   relinkCandidates: (id: string) => request<string[]>('GET', `/api/media/${id}/relink-candidates`),
+  getSequence: () => request<{ revision: number; sequence: Sequence; history: HistoryState }>('GET', '/api/sequence'),
+  edit: (req: EditRequest) => request<EditResponse>('POST', '/api/edit', req),
+  undo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/undo'),
+  redo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/redo'),
   cancelJob: (id: string) => request<{ canceled: boolean }>('POST', `/api/jobs/${id}/cancel`),
 };
 

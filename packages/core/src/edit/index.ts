@@ -1,0 +1,12 @@
+export * from './types';
+export * from './errors';
+export * from './units';
+export * from './keyframes';
+export * from './query';
+export * from './sequence';
+export * from './schema';
+export { applyOp, parseOp, applyPatches, type OpResult, type Patch } from './apply';
+export { maxTransitionDuration, handles } from './normalize';
+export * from './audio';
+export * from './validate';
+export * from './history';

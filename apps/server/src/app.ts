@@ -6,13 +6,14 @@ import type { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import type { FfmpegStatus, HealthResponse, ProjectResponse, ServerEvent } from '@cutroom/core';
+import type { EditRequest, FfmpegStatus, HealthResponse, ProjectResponse, ServerEvent } from '@cutroom/core';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
 import { checkFfmpeg } from './ffmpeg';
 import { sendFile } from './files';
 import { listDirectory } from './fsBrowse';
 import { JobQueue } from './jobs';
+import { EditRequestError } from './edit';
 import { ProjectError, ProjectManager } from './project';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from './security';
 import { exists } from './util';
@@ -61,6 +62,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     if (err instanceof ProjectError) {
       return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     }
+    if (err instanceof EditRequestError) return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     if (err instanceof UnsafePathError) return reply.code(400).send({ error: 'unsafe_path', message: err.message });
     if (err.validation) return reply.code(400).send({ error: 'bad_request', message: err.message });
     if (err.statusCode && err.statusCode < 500) return reply.code(err.statusCode).send({ error: 'bad_request', message: err.message });
@@ -82,6 +84,10 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   manager.on('mediaRemoved', (mediaId) => broadcast({ type: 'mediaRemoved', mediaId }));
   manager.on('project', (project) => broadcast({ type: 'project', project }));
   manager.on('scan', (report) => broadcast({ type: 'scan', report }));
+  manager.on('session', (e) => {
+    if (e.type === 'sequence') broadcast({ type: 'sequence', kind: e.kind, revision: e.revision, patches: e.patches as never, ...(e.sequence ? { sequence: e.sequence } : {}) });
+    else broadcast({ type: 'history', history: manager.historyState() });
+  });
 
   app.get('/ws', { websocket: true }, (socket) => {
     sockets.add(socket);
@@ -121,7 +127,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
   /* ---- project ---- */
   const projectResponse = (): ProjectResponse => {
     const { project } = manager.requireProject();
-    return { summary: manager.summary()!, project };
+    return { summary: manager.summary()!, project, revision: manager.revision, history: manager.historyState() };
   };
 
   app.get('/api/recent', async () => appDb.recent());
@@ -169,6 +175,43 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       },
     },
     async (req) => manager.updateSettings(req.body),
+  );
+
+  /* ---- editing: one validated, atomic, undoable transaction per request ---- */
+  app.get('/api/sequence', async () => {
+    const session = manager.requireSession();
+    return { revision: session.editor.revision, sequence: session.state, history: manager.historyState() };
+  });
+
+  app.post<{ Body: EditRequest }>(
+    '/api/edit',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['ops'],
+          properties: {
+            ops: { type: 'array', minItems: 1, items: { type: 'object' } },
+            label: { type: 'string', maxLength: 300 },
+            origin: { type: 'string' },
+            baseRevision: { type: 'integer' },
+          },
+        },
+      },
+    },
+    async (req) => manager.edit(req.body),
+  );
+
+  app.post('/api/history/undo', async () => manager.requireSession().undo());
+  app.post('/api/history/redo', async () => manager.requireSession().redo());
+  app.get('/api/history', async () => {
+    manager.requireSession();
+    return manager.historyState();
+  });
+  app.post<{ Body: { snapshotId: string } }>(
+    '/api/history/restore',
+    { schema: { body: { type: 'object', required: ['snapshotId'], properties: { snapshotId: { type: 'string' } } } } },
+    async (req) => manager.requireSession().restore(req.body.snapshotId),
   );
 
   /* ---- upload (raw body, streamed to disk under <project>/uploads) ---- */

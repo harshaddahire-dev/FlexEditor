@@ -39,6 +39,10 @@ interface AppState extends LiveState {
   cancelJob(id: string): Promise<void>;
   forgetRecent(path: string): Promise<void>;
   setProjectFromResponse(r: ProjectResponse): void;
+  refreshSequence(): Promise<void>;
+  edit(ops: unknown[], label?: string): Promise<void>;
+  undo(): Promise<void>;
+  redo(): Promise<void>;
 }
 
 let socket: SocketHandle | null = null;
@@ -69,6 +73,10 @@ export const useApp = create<AppState>()((set, get) => {
     jobs: {},
     selectedMediaId: null,
     lastScan: null,
+    sequence: null,
+    revision: 0,
+    sequenceStale: false,
+    history: null,
     uploads: [],
     opening: false,
     openError: null,
@@ -85,7 +93,11 @@ export const useApp = create<AppState>()((set, get) => {
         set({ booting: false });
       }
       socket ??= connectSocket(
-        (ev) => set((s) => applyServerEvent(s, ev)),
+        (ev) => {
+          set((s) => applyServerEvent(s, ev));
+          // missed a patch: fetch the authoritative sequence again
+          if (get().sequenceStale) void get().refreshSequence();
+        },
         (connected) => {
           const was = get().wsConnected;
           set({ wsConnected: connected });
@@ -100,7 +112,14 @@ export const useApp = create<AppState>()((set, get) => {
     },
 
     setProjectFromResponse(r) {
-      set({ project: r.summary, media: Object.fromEntries(r.project.media.map((m) => [m.id, m])) });
+      set({
+        project: r.summary,
+        media: Object.fromEntries(r.project.media.map((m) => [m.id, m])),
+        sequence: r.project.sequences[0] ?? null,
+        revision: r.revision,
+        sequenceStale: false,
+        history: r.history,
+      });
     },
 
     async openProject(path) {
@@ -181,6 +200,25 @@ export const useApp = create<AppState>()((set, get) => {
 
     async cancelJob(id) {
       await api.cancelJob(id);
+    },
+
+    async refreshSequence() {
+      try {
+        const r = await api.getSequence();
+        set({ sequence: r.sequence, revision: r.revision, sequenceStale: false, history: r.history });
+      } catch {
+        /* closed project or lost connection: the next hello/sync repairs it */
+      }
+    },
+
+    async edit(ops, label) {
+      await api.edit({ ops, label });
+    },
+    async undo() {
+      await api.undo();
+    },
+    async redo() {
+      await api.redo();
     },
 
     async forgetRecent(path) {

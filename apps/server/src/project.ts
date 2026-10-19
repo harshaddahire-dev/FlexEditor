@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
+  type EditRequest,
+  type EditResponse,
+  type HistoryState,
+  type Sequence,
+  createSequence,
   DEFAULT_PROJECT_SETTINGS,
   type FfmpegStatus,
   type Media,
@@ -15,6 +20,7 @@ import {
   toNumber,
 } from '@cutroom/core';
 import { AppDb, ProjectDb } from './db';
+import { EditRequestError, EditSession, type SessionEvent } from './edit';
 import type { JobQueue } from './jobs';
 import {
   CUTROOM_DIR,
@@ -48,7 +54,10 @@ type Events = {
   mediaRemoved: [string];
   project: [ProjectSummary | null];
   scan: [ScanReport];
+  session: [SessionEvent];
 };
+
+export { EditRequestError };
 
 export class ProjectError extends Error {
   constructor(
@@ -72,6 +81,7 @@ export class ProjectManager extends EventEmitter<Events> {
   private project: Project | null = null;
   private folder: string | null = null;
   private db: ProjectDb | null = null;
+  private session: EditSession | null = null;
   private saveTimer: NodeJS.Timeout | null = null;
   private savePromise: Promise<void> = Promise.resolve();
   private readonly saveDelay: number;
@@ -151,12 +161,15 @@ export class ProjectManager extends EventEmitter<Events> {
     this.emit('project', this.summary());
 
     await this.scan();
+    this.initSession();
     return this.project;
   }
 
   async close(): Promise<void> {
     if (!this.project) return;
     for (const m of this.project.media) this.opts.jobs.cancelForMedia(m.id);
+    await this.session?.flush();
+    this.session = null;
     await this.flush();
     this.db?.close();
     this.db = null;
@@ -369,6 +382,7 @@ export class ProjectManager extends EventEmitter<Events> {
     if (media.type === 'video' && media.video && project.settings.auto && !project.media.some((m) => m.type === 'video')) {
       const { width, height } = proxyDimensions(media.video.width, media.video.height);
       project.settings = { ...project.settings, width, height, fps: media.video.fps, auto: false };
+      this.rebuildEmptySequence();
       this.emit('project', this.summary());
     }
 
@@ -519,6 +533,8 @@ export class ProjectManager extends EventEmitter<Events> {
     const { project } = this.requireProject();
     const m = this.findMedia(id);
     if (!m) throw new ProjectError('no_such_media', `No media with id ${id}.`, 404);
+    const used = this.clipsUsing(id);
+    if (used > 0) throw new ProjectError('media_in_use', `${m.name} is used by ${used} clip${used === 1 ? '' : 's'} on the timeline. Delete those first.`, 409, { clips: used });
     await this.discardDerived(m);
     // Remember the removal, otherwise the next scan would just import the file again.
     const ignored = (project.ignoredPaths ??= []);
@@ -604,10 +620,74 @@ export class ProjectManager extends EventEmitter<Events> {
     if (!Number.isInteger(next.fps.num) || !Number.isInteger(next.fps.den) || next.fps.num <= 0 || next.fps.den <= 0) {
       throw new ProjectError('bad_settings', 'Frame rate must be a positive rational.');
     }
+    const fpsChanged = next.fps.num * project.settings.fps.den !== project.settings.fps.num * next.fps.den;
+    if (fpsChanged && !this.sequenceIsEmpty()) {
+      throw new ProjectError('sequence_not_empty', 'The frame rate cannot change while the timeline has clips: every edit is frame-aligned to it.', 409);
+    }
     project.settings = next;
+    if (fpsChanged) this.rebuildEmptySequence();
+    else if (this.session && (next.width !== this.session.state.width || next.height !== this.session.state.height)) {
+      this.session.edit({ ops: [{ type: 'setSequenceProps', patch: { width: next.width, height: next.height } }], label: 'Change sequence size' });
+    }
     this.scheduleSave();
     this.emit('project', this.summary());
     return next;
+  }
+
+  /* ----------------------------------------------------------------- editing */
+
+  private newSequence(): Sequence {
+    const { settings } = this.project!;
+    return createSequence({ width: settings.width, height: settings.height, fps: settings.fps, sampleRate: settings.sampleRate });
+  }
+
+  private initSession(): void {
+    const { project, folder } = this.requireProject();
+    const seq = project.sequences[0] ?? this.newSequence();
+    project.sequences = [seq];
+    this.session = new EditSession(seq, (id) => this.findMedia(id), historyDir(folder), (e) => {
+      if (e.type === 'sequence') {
+        project.sequences[0] = this.session!.state;
+        this.scheduleSave();
+      }
+      this.emit('session', e);
+    });
+  }
+
+  /** The editing session of the open project. */
+  requireSession(): EditSession {
+    this.requireProject();
+    if (!this.session) throw new ProjectError('no_session', 'The project is still opening.', 409);
+    return this.session;
+  }
+
+  get revision(): number {
+    return this.session?.editor.revision ?? 0;
+  }
+
+  historyState(): HistoryState {
+    return this.session?.history() ?? { canUndo: false, canRedo: false, undo: [], redo: [], snapshots: [] };
+  }
+
+  edit(req: EditRequest): EditResponse {
+    return this.requireSession().edit(req);
+  }
+
+  /** Number of clips that use `mediaId`. */
+  clipsUsing(mediaId: string): number {
+    const seq = this.project?.sequences[0];
+    return seq ? seq.tracks.reduce((n, t) => n + Object.values(t.items).filter((i) => i.kind === 'clip' && i.mediaId === mediaId).length, 0) : 0;
+  }
+
+  private sequenceIsEmpty(): boolean {
+    return !this.project?.sequences[0]?.tracks.some((t) => Object.keys(t.items).length > 0);
+  }
+
+  /** The first imported video fixed the project settings: an empty sequence must follow them. */
+  private rebuildEmptySequence(): void {
+    if (!this.session || !this.sequenceIsEmpty()) return;
+    this.session.editor.load(this.newSequence());
+    this.project!.sequences = [this.session.state];
   }
 
   /* ----------------------------------------------------------------- saving */
