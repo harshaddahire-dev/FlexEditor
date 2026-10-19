@@ -233,6 +233,9 @@ export function drawReview(ctx: CanvasRenderingContext2D, p: DrawParams, diff: S
 }
 
 /** Paint the whole timeline canvas (ruler + lanes + playhead). Cost is proportional to what is visible, not to clip count. */
+/** How long drawing takes, for the performance tests (a counter and a sum: free to keep on). */
+export const timelineStats = { draws: 0, totalMs: 0, maxMs: 0 };
+
 export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void {
   const { seq, view, theme: t, width, height } = p;
   const rate = seq.timebase.rate;

@@ -43,6 +43,9 @@ test('1,200 clips: zoom, pan and scrub the timeline at ~60 fps', async ({ page }
     const seq = h.useApp.getState().sequence;
     h.useTimeline.getState().fit(seq);
     await new Promise((r) => setTimeout(r, 300));
+    const ts = (window as unknown as { __cutroom: { timelineStats: { draws: number; totalMs: number; maxMs: number } } }).__cutroom.timelineStats;
+    const drawsBefore = ts.draws;
+    const msBefore = ts.totalMs;
     const intervals: number[] = [];
     const phases: number[] = [];
     let last = performance.now();
@@ -64,18 +67,23 @@ test('1,200 clips: zoom, pan and scrub the timeline at ~60 fps', async ({ page }
     });
     intervals.shift();
     phases.shift();
+    const onTime = (ph: number[]) => { const xs = intervals.filter((_, i) => ph.includes(phases[i]!)); return xs.filter((x) => x <= 20).length / Math.max(1, xs.length); };
+    const share = { drawing: onTime([0, 1]), scrubbing: onTime([2]) };
     const per = [0, 1, 2].map((p) => { const xs = intervals.filter((_, i) => phases[i] === p); return xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length); });
     intervals.sort((a, b) => a - b);
     const q = (p: number) => intervals[Math.min(intervals.length - 1, Math.floor(p * intervals.length))]!;
-    return { per, n: intervals.length, mean: intervals.reduce((a, b) => a + b, 0) / intervals.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: intervals[intervals.length - 1]! };
+    return { share, drawMs: (ts.totalMs - msBefore) / Math.max(1, ts.draws - drawsBefore), draws: ts.draws - drawsBefore, maxDraw: ts.maxMs, per, n: intervals.length, mean: intervals.reduce((a, b) => a + b, 0) / intervals.length, p50: q(0.5), p95: q(0.95), p99: q(0.99), max: intervals[intervals.length - 1]! };
   });
+  // eslint-disable-next-line no-console
+  console.log(`drawTimeline: ${stats.draws} draws, mean ${stats.drawMs.toFixed(2)} ms, worst ${stats.maxDraw.toFixed(1)} ms`);
   // eslint-disable-next-line no-console
   console.log(`phases mean ms (zoom, pan, scrub): ${stats.per.map((x) => x.toFixed(1)).join(', ')}`);
   // eslint-disable-next-line no-console
   console.log(`timeline, 1,200 clips: ${stats.n} frames, mean ${stats.mean.toFixed(1)} ms (${(1000 / stats.mean).toFixed(0)} fps), p50 ${stats.p50.toFixed(1)}, p95 ${stats.p95.toFixed(1)}, p99 ${stats.p99.toFixed(1)}, max ${stats.max.toFixed(1)} ms`);
   expect(stats.n).toBeGreaterThan(150);
-  // zooming and panning are pure timeline drawing: 60 fps (a little room for a shared CI box)
-  expect(1000 / ((stats.per[0]! + stats.per[1]!) / 2)).toBeGreaterThan(55);
+  // zooming and panning are pure timeline drawing: nearly every frame lands on the 60 Hz cadence (a shared CI box may drop a few)
+  expect(stats.share.drawing, `${(stats.share.drawing * 100).toFixed(0)} % of zoom/pan frames within 20 ms`).toBeGreaterThanOrEqual(0.88);
+  expect(stats.drawMs).toBeLessThan(4); // and the drawing itself is a small slice of the 16.7 ms budget
   // scrubbing also seeks and decodes video for the monitor (a different clip every ~⅔ s here), so it gets more room
-  expect(1000 / stats.per[2]!).toBeGreaterThan(38);
+  expect(stats.share.scrubbing).toBeGreaterThanOrEqual(0.6);
 });

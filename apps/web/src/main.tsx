@@ -1,3 +1,4 @@
+import { timelineStats } from './timeline/render';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import '@fontsource-variable/inter';
@@ -13,7 +14,7 @@ import { engine } from './playback/engine';
 import { audioHook } from './audio/testHook';
 
 // Test hook, dev server only (stripped from production builds).
-if (import.meta.env.DEV) (window as unknown as { __cutroom: unknown }).__cutroom = { useApp, useTimeline, viewer: engine, audio: audioHook };
+if (import.meta.env.DEV) (window as unknown as { __cutroom: unknown }).__cutroom = { useApp, useTimeline, viewer: engine, audio: audioHook, timelineStats };
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

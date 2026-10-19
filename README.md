@@ -269,7 +269,7 @@ menu with the Menu key or `Shift+F10`.
 
 Measured by the test suites (numbers from a small shared CI-class machine, software WebGL):
 
-- **Timeline:** 1,200 clips with the whole timeline in view — zoom and pan at ~60 fps (mean 17 ms/frame). Far-zoomed clips draw as plain
+- **Timeline:** 1,200 clips with the whole timeline in view — zoom and pan on the 60 Hz cadence (≥ 88 % of frames within 20 ms; the drawing itself takes ≈ 0.7 ms). Far-zoomed clips draw as plain
   blocks (level of detail); only clips in the viewport are drawn at all.
 - **Edit engine:** local edits on a 1,200-clip sequence take 1–40 ms (limit 50 ms); an edit's Immer patch touches only what changed.
 - **Agent tools:** every read and edit tool call finishes in under 50 ms on a 1,200-clip timeline (reads ≈ 1 ms, edits 3–40 ms),
