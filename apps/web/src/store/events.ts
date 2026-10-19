@@ -52,6 +52,7 @@ export function applyServerEvent(s: LiveState, e: ServerEvent): Partial<LiveStat
       return { sequence: applyPatches(s.sequence, e.patches as Patch[]), revision: e.revision };
     }
     case 'agent':
-      return {}; // streamed into the agent store, not the project mirror
+    case 'export':
+      return {}; // streamed into their own stores, not the project mirror
   }
 }

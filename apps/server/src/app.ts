@@ -6,7 +6,7 @@ import type { Readable } from 'node:stream';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
-import type { AgentSettings, EditRequest, McpServerInput, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
+import type { AgentSettings, EditRequest, ExportRequest, McpServerInput, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
 import { findWhisper, type WhisperInstall } from './analysis/whisper';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
@@ -16,6 +16,7 @@ import { listDirectory } from './fsBrowse';
 import { JobQueue } from './jobs';
 import { EditRequestError } from './edit';
 import { AgentError, AgentService } from './agent/service';
+import { ExportError, ExportService } from './export/service';
 import { ExtensionError, ExtensionService } from './extensions';
 import { ProviderError, ProviderService } from './providers';
 import { ProjectError, ProjectManager } from './project';
@@ -29,6 +30,7 @@ export interface BuiltApp {
   agent: AgentService;
   providers: ProviderService;
   extensions: ExtensionService;
+  exports: ExportService;
   manager: ProjectManager;
   jobs: JobQueue;
   appDb: AppDb;
@@ -77,6 +79,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
     }
     if (err instanceof AgentError) return reply.code(err.status).send({ error: err.code, message: err.message });
+    if (err instanceof ExportError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof ExtensionError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof ProviderError) return reply.code(err.status).send({ error: err.code, message: err.message });
     if (err instanceof EditRequestError) return reply.code(err.status).send({ error: err.code, message: err.message, details: err.details });
@@ -109,6 +112,12 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     providers,
     extensions,
     (e) => broadcast(e),
+  );
+  const exports = new ExportService(
+    { folder: () => manager.projectFolder, sequence: () => manager.requireSession().state, media: () => manager.current?.media ?? [] },
+    jobs,
+    { ffmpegPath: config.ffmpegPath, ffprobePath: config.ffprobePath },
+    (info) => broadcast({ type: 'export', export: info }),
   );
   extensions.start();
   jobs.on('update', (job) => broadcast({ type: 'job', job }));
@@ -466,6 +475,39 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
 
   app.get<{ Params: { id: string } }>('/api/media/:id/relink-candidates', async (req) => manager.relinkCandidates(req.params.id));
 
+  /* ---- export ---- */
+  app.get('/api/exports', async () => exports.list());
+  app.post<{ Body: ExportRequest }>(
+    '/api/exports',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['preset', 'name', 'engine', 'captions'],
+          properties: {
+            preset: { type: 'string' },
+            name: { type: 'string', minLength: 1, maxLength: 200 },
+            engine: { type: 'string', enum: ['webcodecs', 'ffmpeg'] },
+            captions: { type: 'string', enum: ['burn', 'sidecar', 'both', 'none'] },
+            from: { type: 'integer', minimum: 0 },
+            to: { type: 'integer', minimum: 0 },
+            width: { type: 'integer' },
+            height: { type: 'integer' },
+            draft: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (req, reply) => reply.code(201).send(exports.create(req.body)),
+  );
+  app.get<{ Params: { id: string } }>('/api/exports/:id', async (req) => exports.get(req.params.id));
+  app.put<{ Params: { id: string } }>('/api/exports/:id/audio', async (req) => (await exports.receiveAudio(req.params.id, req.body as Readable), { ok: true }));
+  app.put<{ Params: { id: string }; Querystring: { format?: string } }>('/api/exports/:id/video', async (req) => (await exports.receiveVideo(req.params.id, req.body as Readable, req.query.format === 'ivf' ? 'ivf' : 'h264'), { ok: true }));
+  app.post<{ Params: { id: string }; Body: { frames: number } }>('/api/exports/:id/finish', async (req) => (exports.finishVideo(req.params.id, req.body.frames), { ok: true }));
+  app.post<{ Params: { id: string }; Body: { fraction: number } }>('/api/exports/:id/progress', async (req) => (exports.progress(req.params.id, Number(req.body.fraction)), { ok: true }));
+  app.delete<{ Params: { id: string } }>('/api/exports/:id', async (req) => (exports.cancel(req.params.id), { ok: true }));
+  app.get<{ Params: { id: string } }>('/api/exports/:id/file', async (req, reply) => sendFile(req, reply, exports.fileOf(req.params.id)));
+
   /* ---- jobs ---- */
   app.get('/api/jobs', async () => jobs.list());
   app.post<{ Params: { id: string } }>('/api/jobs/:id/cancel', async (req) => ({ canceled: jobs.cancel(req.params.id) }));
@@ -481,9 +523,10 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
 
   app.addHook('onClose', async () => {
     extensions.close();
+    exports.close();
     await manager.close();
     appDb.close();
   });
 
-  return { app, manager, jobs, appDb, providers, agent, extensions };
+  return { app, manager, jobs, appDb, providers, agent, extensions, exports };
 }

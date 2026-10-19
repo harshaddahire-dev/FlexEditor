@@ -11,3 +11,5 @@ export * from './transitions';
 export * from './captionStyles';
 export * from './captions';
 export * from './extensions';
+export * from './render';
+export * from './export';

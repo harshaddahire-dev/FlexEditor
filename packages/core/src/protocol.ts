@@ -166,7 +166,8 @@ export type ServerEvent =
   | { type: 'sequence'; kind: 'commit' | 'undo' | 'redo' | 'load'; revision: number; patches: Patch[]; sequence?: Sequence }
   | { type: 'history'; history: HistoryState }
   | { type: 'agent'; kind: 'event'; runId: string; event: import('./agent').RunEvent }
-  | { type: 'agent'; kind: 'turn'; turn: import('./agent').ChatTurn };
+  | { type: 'agent'; kind: 'turn'; turn: import('./agent').ChatTurn }
+  | { type: 'export'; export: import('./export').ExportInfo };
 
 export interface ApiError {
   error: string;
