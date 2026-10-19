@@ -85,7 +85,8 @@ test('build, cut, move, trim, undo and delete on the timeline with mouse and key
   const at3 = await px(page, 3 * R);
   await page.mouse.click(at3.x, at3.y);
   await expect(page.getByLabel('Playhead timecode')).toHaveText('00:00:03:00');
-  await expect(page.getByLabel('Timecode', { exact: true })).toHaveText('00:00:03:00'); // viewer shows the same
+  await page.getByRole('button', { name: 'Program', exact: true }).click();
+  await expect(page.getByLabel('Timecode', { exact: true })).toHaveText('00:00:03:00'); // the program monitor shows the same
 
   // --- blade tool: press C, click the clip at 3 s → linked split of video and audio
   await page.keyboard.press('c');
