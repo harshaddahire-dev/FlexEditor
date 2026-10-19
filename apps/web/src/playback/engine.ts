@@ -1,12 +1,9 @@
 import { create } from 'zustand';
-import { type Clip, type Media, type Sequence, type Transform, defaultTransform, resolveEffectParams } from '@cutroom/core';
-import { mediaUrl } from '../lib/api';
+import type { Sequence, Transform } from '@cutroom/core';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
-import { Compositor, type Drawable, type Layer, type RenderItem } from './compositor';
-import { CaptionPainter } from './captions';
-import { activeCaptions, layerMatrix, planFrame, resolveTransform, sourceTicksAt } from './layers';
-import { VideoSource } from './videoSource';
+import { Compositor } from './compositor';
+import { FrameBuilder } from './frameBuilder';
 
 export interface ViewerStatus {
   /** Set when a proxy cannot be decoded; shown over the monitor. */
@@ -29,8 +26,6 @@ export interface PlaybackStats {
   lastMs: number;
 }
 
-type SourceEntry = { key: string; ready: Promise<VideoSource | ImageBitmap> };
-
 /**
  * Drives the program monitor. Whenever the playhead, sequence or media change it asks for a render; requests are
  * latest-wins, so a slow decode during scrubbing never queues stale frames. Each draw resolves, for every video
@@ -39,7 +34,6 @@ type SourceEntry = { key: string; ready: Promise<VideoSource | ImageBitmap> };
 export class PlaybackEngine {
   private compositor: Compositor | null = null;
   private host: HTMLElement | null = null;
-  private readonly sources = new Map<string, SourceEntry>();
   private want: number | null = null;
   private running = false;
   private unsubs: (() => void)[] = [];
@@ -126,63 +120,13 @@ export class PlaybackEngine {
     return this.running || this.want !== null ? new Promise((r) => this.idleWaiters.push(r)) : Promise.resolve();
   }
 
-  private source(media: Media): Promise<VideoSource | ImageBitmap> | null {
-    if (media.type === 'image') {
-      return this.cached(media, 'original', async () => createImageBitmap(await (await fetch(mediaUrl(media.id, 'original', media.mtimeMs))).blob()));
-    }
-    if (media.status.proxy !== 'done') return null;
-    return this.cached(media, `proxy:${media.proxy?.codec ?? ''}`, () => VideoSource.open(mediaUrl(media.id, 'proxy', `${media.mtimeMs}-${media.proxy?.codec ?? ''}`)));
-  }
-
-  private cached(media: Media, tag: string, make: () => Promise<VideoSource | ImageBitmap>): Promise<VideoSource | ImageBitmap> {
-    const key = `${tag}:${media.mtimeMs}:${media.path}`;
-    const hit = this.sources.get(media.id);
-    if (hit && hit.key === key) return hit.ready;
-    if (hit) void hit.ready.then((s) => (s instanceof VideoSource ? s.dispose() : s.close())).catch(() => undefined);
-    const ready = make();
-    ready.catch(() => this.sources.get(media.id)?.ready === ready && this.sources.delete(media.id));
-    this.sources.set(media.id, { key, ready });
-    return ready;
-  }
+  private readonly frames = new FrameBuilder('proxy');
 
   /** Live edits from the on-canvas handles: shown immediately, committed to the sequence when the drag ends. */
-  private readonly overrides = new Map<string, Partial<Transform>>();
-
   setOverride(clipId: string, t: Partial<Transform> | null): void {
-    if (t) this.overrides.set(clipId, t);
-    else this.overrides.delete(clipId);
+    if (t) this.frames.overrides.set(clipId, t);
+    else this.frames.overrides.delete(clipId);
     this.request();
-  }
-
-  private captions: CaptionPainter | null = null;
-
-  /** Resolve one clip into a drawable layer at `ticks` (decoded frame or still, transform, keyframes, effects). */
-  private async layerFor(clip: Clip, ticks: number, seq: Sequence, media: Record<string, Media>, rate: number): Promise<{ layer: Layer; info: { clipId: string; mediaId: string; index: number } } | null> {
-    const m = media[clip.mediaId];
-    const pending = m && !m.missing ? this.source(m) : null;
-    if (!pending) return null;
-    const src = await pending;
-    const rel = ticks - clip.start;
-    let drawable: Drawable;
-    let index = 0;
-    let srcW: number;
-    let srcH: number;
-    if (src instanceof VideoSource) {
-      index = src.indexAtTicks(sourceTicksAt(clip, ticks), rate);
-      drawable = await src.frame(index);
-      srcW = (drawable as VideoFrame).displayWidth;
-      srcH = (drawable as VideoFrame).displayHeight;
-      src.prefetchAfter(index);
-    } else {
-      drawable = src;
-      srcW = src.width;
-      srcH = src.height;
-    }
-    const t = { ...resolveTransform(clip, rel), ...(this.overrides.get(clip.id) ?? {}) };
-    const fit = Math.min(seq.width / srcW, seq.height / srcH);
-    const effects = clip.effects.filter((e) => e.enabled).map((e) => ({ type: e.type, params: resolveEffectParams(e, clip, rel) }));
-    const layer: Layer = { source: drawable, srcW, srcH, matrix: layerMatrix(t, srcW, srcH, seq.width, seq.height), opacity: t.opacity, crop: t.crop, ...(effects.length ? { effects, pixelScale: 1 / fit } : {}) };
-    return { layer, info: { clipId: clip.id, mediaId: clip.mediaId, index } };
   }
 
   private async draw(ticks: number): Promise<void> {
@@ -197,43 +141,13 @@ export class PlaybackEngine {
       return;
     }
 
-    const rate = seq.timebase.rate;
-    let waiting = 0;
-    const infos: Shown['layers'] = [];
-    const rendered = await Promise.all(
-      planFrame(seq, ticks).map(async (p): Promise<RenderItem | null> => {
-        if (p.kind === 'clip') {
-          const r = await this.layerFor(p.clip, ticks, seq, media, rate);
-          if (!r) return (waiting++, null);
-          infos.push(r.info);
-          return { kind: 'layer', layer: r.layer };
-        }
-        const [a, b] = await Promise.all([this.layerFor(p.from, ticks, seq, media, rate), this.layerFor(p.to, ticks, seq, media, rate)]);
-        if (!a || !b) {
-          waiting++;
-          const only = a ?? b;
-          return only ? { kind: 'layer', layer: only.layer } : null;
-        }
-        infos.push(a.info, b.info);
-        return { kind: 'transition', type: p.transition.type, progress: p.progress, from: a.layer, to: b.layer };
-      }),
-    );
-
+    const built = await this.frames.build(ticks, seq, media);
     // A newer request arrived while decoding: it will paint instead.
     if (this.want !== null) return;
-    const items = rendered.filter((r): r is RenderItem => r !== null);
-
-    // burned-in captions go on top as one more layer
-    const caps = activeCaptions(seq, ticks);
-    if (caps.length) {
-      this.captions ??= new CaptionPainter(seq.width, seq.height, () => seq.timebase.rate);
-      this.captions.resize(seq.width, seq.height);
-      this.captions.paint(caps.map(({ caption }) => ({ caption, t: ticks })));
-      items.push({ kind: 'layer', layer: { source: this.captions.canvas, version: this.captions.version, srcW: seq.width, srcH: seq.height, matrix: layerMatrix(defaultTransform(), seq.width, seq.height, seq.width, seq.height), opacity: 1, crop: { left: 0, right: 0, top: 0, bottom: 0 } } });
-    }
+    const { items, waiting } = built;
 
     comp.render(items);
-    this.shown = { ticks, layers: infos.map((i) => i) };
+    this.shown = { ticks, layers: built.layers };
     this.stats = { rendered: this.stats.rendered + 1, dropped: this.stats.dropped, lastMs: performance.now() - started };
     const st = useViewerStatus.getState();
     if (st.waiting !== waiting || st.error) useViewerStatus.setState({ waiting, error: null });
@@ -242,8 +156,7 @@ export class PlaybackEngine {
   dispose(): void {
     this.unsubs.forEach((u) => u());
     this.unsubs = [];
-    for (const e of this.sources.values()) void e.ready.then((s) => (s instanceof VideoSource ? s.dispose() : s.close())).catch(() => undefined);
-    this.sources.clear();
+    this.frames.dispose();
     this.compositor?.dispose();
     this.compositor = null;
   }

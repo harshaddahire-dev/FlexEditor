@@ -501,7 +501,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     async (req, reply) => reply.code(201).send(exports.create(req.body)),
   );
   app.get<{ Params: { id: string } }>('/api/exports/:id', async (req) => exports.get(req.params.id));
-  app.put<{ Params: { id: string } }>('/api/exports/:id/audio', async (req) => (await exports.receiveAudio(req.params.id, req.body as Readable), { ok: true }));
+  app.put<{ Params: { id: string }; Querystring: { part?: string; last?: string } }>('/api/exports/:id/audio', async (req) => (await exports.receiveAudio(req.params.id, req.body as Readable, Number(req.query.part ?? 0), req.query.last !== '0'), { ok: true }));
   app.put<{ Params: { id: string }; Querystring: { format?: string } }>('/api/exports/:id/video', async (req) => (await exports.receiveVideo(req.params.id, req.body as Readable, req.query.format === 'ivf' ? 'ivf' : 'h264'), { ok: true }));
   app.post<{ Params: { id: string }; Body: { frames: number } }>('/api/exports/:id/finish', async (req) => (exports.finishVideo(req.params.id, req.body.frames), { ok: true }));
   app.post<{ Params: { id: string }; Body: { fraction: number } }>('/api/exports/:id/progress', async (req) => (exports.progress(req.params.id, Number(req.body.fraction)), { ok: true }));
@@ -510,6 +510,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
 
   /* ---- jobs ---- */
   app.get('/api/jobs', async () => jobs.list());
+  app.get<{ Params: { id: string } }>('/api/jobs/:id', async (req, reply) => jobs.get(req.params.id) ?? reply.code(404).send({ error: 'no_such_job', message: 'No such job.' }));
   app.post<{ Params: { id: string } }>('/api/jobs/:id/cancel', async (req) => ({ canceled: jobs.cancel(req.params.id) }));
 
   /* ---- production: serve the built web app ---- */

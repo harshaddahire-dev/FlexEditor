@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { fakeModel } from './fakeModel';
-import { resetProject } from './helpers';
+import { openFootageAndInsert, resetProject } from './helpers';
 
 const FAKE_MCP = path.resolve(import.meta.dirname, '../apps/server/test/fixtures/fake-mcp.mjs');
 
@@ -39,4 +39,18 @@ test('capture extensions @shots', async ({ page, request }) => {
     for (const pr of (await (await request.get('/api/providers')).json()).providers as { id: string }[]) await request.delete(`/api/providers/${pr.id}`);
     for (const s of (await (await request.get('/api/extensions')).json()).mcp as { id: string }[]) await request.delete(`/api/extensions/mcp/${s.id}`);
   }
+});
+
+test('capture render dialog @shots', async ({ page, request }) => {
+  await resetProject(request);
+  const out = path.resolve(import.meta.dirname, '.tmp/shots');
+  fs.mkdirSync(out, { recursive: true });
+  await openFootageAndInsert(page);
+  await page.getByRole('button', { name: 'Render', exact: true }).click();
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: path.join(out, '15-render.png') });
+  await page.getByRole('button', { name: 'Start render' }).click();
+  await expect(page.getByTestId('render-done')).toBeVisible({ timeout: 120_000 });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: path.join(out, '16-render-done.png') });
 });

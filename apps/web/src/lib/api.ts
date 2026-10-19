@@ -1,5 +1,8 @@
 import type {
   EditRequest,
+  ExportInfo,
+  ExportRequest,
+  JobInfo,
   ExtensionsInfo,
   McpServerInfo,
   McpServerInput,
@@ -87,6 +90,9 @@ export const api = {
   redo: () => request<{ revision: number; label: string | null }>('POST', '/api/history/redo'),
   setProxyCodec: (codec: ProxyCodec) => request<ProxySettingsResponse>('PUT', '/api/settings/proxy-codec', { codec }),
   analyze: (id: string) => request<Media>('POST', `/api/media/${id}/analyze`),
+  createExport: (req: ExportRequest) => request<ExportInfo>('POST', '/api/exports', req),
+  getExport: (id: string) => request<ExportInfo>('GET', `/api/exports/${id}`),
+  job: (id: string) => request<JobInfo>('GET', `/api/jobs/${id}`),
   extensions: () => request<ExtensionsInfo>('GET', '/api/extensions'),
   reloadExtensions: () => request<ExtensionsInfo>('POST', '/api/extensions/reload'),
   setSkillEnabled: (name: string, enabled: boolean) => request<ExtensionsInfo>('PUT', `/api/extensions/skills/${encodeURIComponent(name)}`, { enabled }),

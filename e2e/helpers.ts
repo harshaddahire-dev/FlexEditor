@@ -10,6 +10,7 @@ export async function resetProject(request: APIRequestContext): Promise<void> {
   await request.post('/api/project/close');
   await fs.rm(path.join(process.env.E2E_FOOTAGE!, '.cutroom'), { recursive: true, force: true });
   await fs.rm(path.join(process.env.E2E_FOOTAGE!, 'uploads'), { recursive: true, force: true });
+  await fs.rm(path.join(process.env.E2E_FOOTAGE!, 'exports'), { recursive: true, force: true });
 }
 
 export type Clip = { id: string; start: number; duration: number; sourceIn: number; kind: string };

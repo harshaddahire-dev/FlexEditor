@@ -132,17 +132,18 @@ export class ExportService {
     this.jobs.cancel(s.info.jobId);
   }
 
-  async receiveAudio(id: string, body: Readable): Promise<void> {
+  /** The audio mix arrives as one or more in-order parts (a long program is rendered in windows); the last one completes it. */
+  async receiveAudio(id: string, body: Readable, part = 0, last = true): Promise<void> {
     const s = this.session(id);
     await fs.mkdir(s.dir, { recursive: true });
     s.audioPath = path.join(s.dir, 'audio.wav');
     try {
-      await pipeline(body, createWriteStream(s.audioPath));
+      await pipeline(body, createWriteStream(s.audioPath, { flags: part === 0 ? 'w' : 'a' }));
     } catch (e) {
       s.audio.reject(e as Error);
       throw e;
     }
-    s.audio.resolve();
+    if (last) s.audio.resolve();
   }
 
   async receiveVideo(id: string, body: Readable, format: 'h264' | 'ivf'): Promise<void> {

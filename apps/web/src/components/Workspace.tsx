@@ -4,6 +4,7 @@ import { usePersistedSize } from '../lib/layout';
 import { useAgent } from '../store/agent';
 import { useUi } from '../store/ui';
 import { Splitter } from './Splitter';
+import { RenderDialog } from './RenderDialog';
 import { SettingsDialog } from './SettingsDialog';
 import { TopBar } from './TopBar';
 import { Toasts } from './Toasts';
@@ -45,6 +46,7 @@ export function Workspace() {
       </div>
       <Toasts />
       <SettingsDialog />
+      <RenderDialog />
       <KeyboardLayer />
     </div>
   );
