@@ -56,6 +56,13 @@ Electron window — no Node, pnpm or FFmpeg setup. Projects, keys and settings l
   renders normally use the fast browser engine straight from your original files. `pnpm desktop:smoke` and `pnpm desktop:test` check
   the packaged app end to end (window, server, FFmpeg, open a folder, render, 0 frames of A/V offset).
 
+### Something wrong? Copy diagnostics
+
+If the monitor is black or a stage is stuck, press **Copy diagnostics** (under the monitor's note, in Settings → System, or Help →
+Copy diagnostics) and paste the text into a bug report. It lists the graphics (WebGL renderer, GPU status), which video codecs this
+machine can decode, each media file's codec and processing stages, the timeline's clips, running jobs and the end of the log —
+no keys and none of your footage. **Help → Show log file** opens the full log.
+
 ### Updates
 
 The desktop app keeps itself current from this repository's GitHub releases.

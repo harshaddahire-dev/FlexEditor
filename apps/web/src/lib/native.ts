@@ -22,6 +22,8 @@ export interface DesktopBridge {
   pickFolder(): Promise<string | null>;
   /** Reveal a file or folder in Explorer / Finder. */
   reveal(path: string): Promise<void>;
+  /** Copies facts about graphics, codecs, media and the timeline for a bug report. */
+  copyDiagnostics(): Promise<void>;
   updates: {
     get(): Promise<UpdateState | null>;
     check(): Promise<UpdateState | null>;

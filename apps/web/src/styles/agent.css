@@ -219,3 +219,12 @@
   color: var(--text-2);
   gap: 6px;
 }
+
+.viewer__prog {
+  display: flex;
+  flex-direction: column;
+  min-width: 190px;
+}
+.viewer__diag {
+  flex: none;
+}
