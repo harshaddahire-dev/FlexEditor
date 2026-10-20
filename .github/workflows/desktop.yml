@@ -1,0 +1,54 @@
+name: Desktop installers
+
+# Builds the Cutroom desktop app for Windows, macOS and Linux. Run it from the Actions tab ("Run workflow"), or push a tag
+# like v0.1.0 to also publish the installers on a GitHub release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Linux only: start the packaged app headless and check the window, server, bundled FFmpeg and native bridge
+      - name: Smoke test
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          node desktop/build.mjs smoke
+
+      - name: Build installer
+        run: node desktop/build.mjs dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutroom-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage

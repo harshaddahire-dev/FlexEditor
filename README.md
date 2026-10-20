@@ -35,6 +35,27 @@ undoable engine operation, grouped so a whole agent run can be kept or undone in
                               FFmpeg · ffprobe · whisper.cpp
 ```
 
+## Desktop app (no terminal, nothing to install first)
+
+Cutroom also ships as a normal desktop application: one installer that contains the editor, its server, **FFmpeg and ffprobe**, and an
+Electron window — no Node, pnpm or FFmpeg setup. Projects, keys and settings live in your user profile; your footage stays where it is.
+
+- **Get an installer.** Open the repository's **Actions → Desktop installers → Run workflow** (or push a tag such as `v0.1.0`, which also
+  publishes a GitHub release). When it finishes, download `cutroom-windows-latest` (`Cutroom-<version>-win-x64.exe`),
+  `cutroom-macos-latest` (`.dmg`) or `cutroom-ubuntu-latest` (`.AppImage`).
+- **Or build it yourself** on the OS you want it for (needs Node 22 and pnpm 10):
+
+  ```bash
+  pnpm install
+  pnpm desktop:dist        # writes the installer to ./release
+  pnpm desktop             # or just run the desktop app from source
+  ```
+
+- The installers are not code-signed: Windows SmartScreen shows "More info → Run anyway", and on macOS use right-click → Open.
+- The desktop app adds a native folder dialog and "Show in folder" after a render. Electron's Chromium decodes and encodes H.264, so
+  renders normally use the fast browser engine straight from your original files. `pnpm desktop:smoke` and `pnpm desktop:test` check
+  the packaged app end to end (window, server, FFmpeg, open a folder, render, 0 frames of A/V offset).
+
 ## Requirements
 
 - Node 20+ and pnpm 10
@@ -43,7 +64,7 @@ undoable engine operation, grouped so a whole agent run can be kept or undone in
   The first screen explains what to install if anything is missing.
   - macOS: `brew install ffmpeg` · Windows: `winget install Gyan.FFmpeg` · Debian/Ubuntu: `sudo apt install ffmpeg`
 
-## Run
+## Run from source
 
 ```bash
 pnpm install
@@ -227,6 +248,7 @@ orange, pixelate, dip-to-black timing, iris/zoom) and lists exactly which ones i
 ## Repository layout
 
 ```
+desktop/         Electron shell + installer build (build.mjs, electron-builder config); not part of the pnpm workspace
 apps/web         Vite + React 18 + TypeScript (strict), Zustand, Radix primitives, CSS-variable tokens
 apps/server      Fastify + WebSocket + better-sqlite3, FFmpeg/ffprobe orchestration, job queue
 packages/core    Time model, timecode, media/project types, protocol types (shared by web + server)
@@ -283,6 +305,7 @@ Measured by the test suites (numbers from a small shared CI-class machine, softw
 pnpm test           # unit + integration (core, agents, plugin-sdk, server with real FFmpeg, web)
 pnpm typecheck
 pnpm test:e2e       # Playwright (starts `pnpm dev` itself; uses /opt/pw-browsers/chromium if present)
+pnpm desktop:test   # the packaged desktop app, driven with Playwright's Electron support (after `pnpm desktop:smoke` has built it)
 pnpm eval           # agent evals against scripted trajectories (no model needed)
 pnpm eval:live      # the same evals against a real model — see below
 pnpm gen:sync-asset out.mp4 10 30   # flash+beep A/V sync asset, prints measured offset

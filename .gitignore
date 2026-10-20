@@ -12,3 +12,6 @@ playwright-report/
 !.env.example
 .fixtures/
 e2e/.tmp/
+release/
+desktop/smoke.png
+desktop/test-results/

@@ -1,0 +1,172 @@
+'use strict';
+/**
+ * Cutroom desktop shell. It starts the Cutroom server inside this process (on a free local port, with the bundled FFmpeg
+ * and the app's own data folder), opens a window on it, and stops it again on quit. Nothing to install or run by hand.
+ */
+const fs = require('node:fs');
+const path = require('node:path');
+const { pathToFileURL } = require('node:url');
+const { BrowserWindow, Menu, app, dialog, ipcMain, shell } = require('electron');
+
+const SMOKE = process.env.CUTROOM_SMOKE === '1';
+const HOME_PAGE = 'https://github.com/harshaddahire-dev/FlexEditor';
+let server = null;
+let win = null;
+let quitting = false;
+
+app.setAppUserModelId('app.cutroom.editor');
+// the compositor needs WebGL2: when a machine's GPU or driver is blocklisted, fall back to software rendering instead of failing
+app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+
+function bundled(pkg, pick) {
+  try {
+    const p = pick(require(pkg));
+    return p && fs.existsSync(p) ? p : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Skills and plugins sit next to the app when installed, and in the repo layout when run from source. */
+function extensionsRoot() {
+  const installed = process.resourcesPath;
+  return app.isPackaged && fs.existsSync(path.join(installed, 'skills')) ? installed : __dirname;
+}
+
+async function startServer() {
+  const entry = pathToFileURL(path.join(__dirname, 'server', 'start.js')).href;
+  const { startServer: start } = await import(entry);
+  // an FFmpeg of the user's own (FFMPEG_PATH) wins; otherwise the one that ships with the app
+  const ffmpegPath = process.env.FFMPEG_PATH || bundled('ffmpeg-static', (m) => m) || 'ffmpeg';
+  const ffprobePath = process.env.FFPROBE_PATH || bundled('ffprobe-static', (m) => m.path) || 'ffprobe';
+  return start({
+    host: '127.0.0.1',
+    port: 0,
+    dataDir: process.env.CUTROOM_DATA_DIR || path.join(app.getPath('userData'), 'data'),
+    webDist: path.join(__dirname, 'web'),
+    extensionsRoot: extensionsRoot(),
+    ffmpegPath,
+    ffprobePath,
+  });
+}
+
+function menu() {
+  const mac = process.platform === 'darwin';
+  return Menu.buildFromTemplate([
+    ...(mac ? [{ role: 'appMenu' }] : []),
+    { label: 'File', submenu: [mac ? { role: 'close' } : { role: 'quit' }] },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [{ role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { type: 'separator' }, { role: 'togglefullscreen' }, ...(app.isPackaged ? [] : [{ type: 'separator' }, { role: 'reload' }, { role: 'toggleDevTools' }])],
+    },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        { label: 'Cutroom on GitHub', click: () => void shell.openExternal(HOME_PAGE) },
+        { label: 'Show app data folder', click: () => void shell.openPath(app.getPath('userData')) },
+      ],
+    },
+  ]);
+}
+
+function createWindow(url) {
+  win = new BrowserWindow({
+    width: 1560,
+    height: 960,
+    minWidth: 1100,
+    minHeight: 680,
+    show: false,
+    title: 'Cutroom',
+    backgroundColor: '#111112',
+    autoHideMenuBar: true,
+    icon: fs.existsSync(path.join(__dirname, 'icon.png')) ? path.join(__dirname, 'icon.png') : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      // playback and the audio clock must keep running when the window is behind another one
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+    },
+  });
+  win.once('ready-to-show', () => win.show());
+  // only the local server is ever shown in the window; links go to the system browser
+  const local = new URL(url).origin;
+  win.webContents.setWindowOpenHandler(({ url: target }) => {
+    if (/^https?:/i.test(target)) void shell.openExternal(target);
+    return { action: 'deny' };
+  });
+  win.webContents.on('will-navigate', (e, target) => {
+    if (new URL(target).origin !== local) {
+      e.preventDefault();
+      if (/^https?:/i.test(target)) void shell.openExternal(target);
+    }
+  });
+  win.on('closed', () => (win = null));
+  return win.loadURL(url);
+}
+
+ipcMain.handle('cutroom:pick-folder', async () => {
+  const r = await dialog.showOpenDialog(win ?? undefined, { title: 'Choose a folder of footage', properties: ['openDirectory', 'createDirectory'] });
+  return r.canceled || !r.filePaths[0] ? null : r.filePaths[0];
+});
+ipcMain.handle('cutroom:reveal', (_e, target) => {
+  if (typeof target === 'string' && path.isAbsolute(target) && fs.existsSync(target)) shell.showItemInFolder(target);
+});
+
+async function smoke() {
+  // a self-test used by CI and by `pnpm desktop:smoke`: prove the window, the server, FFmpeg and the bridge all came up
+  await new Promise((r) => setTimeout(r, 2500));
+  const info = await win.webContents.executeJavaScript(`(async () => {
+    const h = await fetch('/api/health').then((r) => r.json());
+    const dec = typeof VideoDecoder !== 'undefined' ? (await VideoDecoder.isConfigSupported({ codec: 'avc1.640028', codedWidth: 1920, codedHeight: 1080 })).supported : false;
+    const enc = typeof VideoEncoder !== 'undefined' ? (await VideoEncoder.isConfigSupported({ codec: 'avc1.640028', width: 1920, height: 1080, bitrate: 8e6, framerate: 30, avc: { format: 'annexb' } }).catch(() => ({ supported: false }))).supported : false;
+    return { title: document.title, hasBridge: !!window.cutroomDesktop, h264Decode: dec, h264Encode: enc, text: document.body.innerText.slice(0, 200).replace(/\\s+/g, ' '), api: { ok: h.ffmpeg.ok, problems: h.ffmpeg.problems, ffmpeg: h.ffmpeg.ffmpeg ? h.ffmpeg.ffmpeg.version : null, dataDir: h.dataDir } };
+  })()`);
+  const out = process.env.CUTROOM_SMOKE_OUT;
+  if (out) fs.writeFileSync(out, (await win.webContents.capturePage()).toPNG());
+  console.log('SMOKE ' + JSON.stringify({ url: server.url, ...info }));
+  quitting = true;
+  await server.close().catch(() => undefined);
+  app.exit(info.api.ok && info.hasBridge ? 0 : 1);
+}
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+  });
+
+  app.whenReady().then(async () => {
+    Menu.setApplicationMenu(menu());
+    try {
+      server = await startServer();
+    } catch (e) {
+      dialog.showErrorBox('Cutroom could not start', String((e && e.stack) || e));
+      app.exit(1);
+      return;
+    }
+    if (!server.ffmpeg.ok) console.warn('FFmpeg is not ready:', server.ffmpeg.problems.join(' '));
+    await createWindow(server.url);
+    if (SMOKE) await smoke();
+  });
+
+  app.on('window-all-closed', () => app.quit());
+  app.on('before-quit', (e) => {
+    if (quitting || !server) return;
+    // let the server save the project and stop its jobs first
+    e.preventDefault();
+    quitting = true;
+    server.close().catch(() => undefined).finally(() => app.exit(0));
+  });
+  app.on('activate', () => {
+    if (!win && server) void createWindow(server.url);
+  });
+}

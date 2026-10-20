@@ -1,5 +1,6 @@
-import { Check, Download, FileVideo, Loader2, TriangleAlert } from 'lucide-react';
+import { Check, Download, FileVideo, FolderOpen, Loader2, TriangleAlert } from 'lucide-react';
 import { EXPORT_PRESETS, type CaptionExport, exportPreset, framesToTimecode } from '@cutroom/core';
+import { desktop } from '../lib/native';
 import { useApp } from '../store/app';
 import { hasCaptions, useExport, type EngineChoice } from '../store/export';
 import { useTimeline } from '../store/timeline';
@@ -94,9 +95,16 @@ export function RenderDialog() {
             ) : null}
           </dl>
           {s.info.warnings.length ? <div className="callout callout--warn ext__warn"><TriangleAlert {...ICON} size={14} /><ul>{s.info.warnings.map((w) => <li key={w}>{w}</li>)}</ul></div> : null}
-          <a className="btn" href={`/api/exports/${s.info.id}/file`} download>
-            <FileVideo {...ICON} />Download
-          </a>
+          <div className="row">
+            {desktop() ? (
+              <button className="btn btn--primary" onClick={() => void desktop()!.reveal(s.info!.output!)}>
+                <FolderOpen {...ICON} />Show in folder
+              </button>
+            ) : null}
+            <a className="btn" href={`/api/exports/${s.info.id}/file`} download>
+              <FileVideo {...ICON} />Download
+            </a>
+          </div>
         </div>
       ) : s.error ? (
         <div className="callout" role="alert">{s.error}</div>
