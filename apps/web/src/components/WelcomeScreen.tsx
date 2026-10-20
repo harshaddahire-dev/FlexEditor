@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Bot, Clapperboard, Folder, FolderOpen, Waves, X } from 'lucide-react';
 import { useApp } from '../store/app';
 import { FolderPicker } from './FolderPicker';
+import { desktop } from '../lib/native';
 import { Logo } from './Logo';
 import { ICON, Tip } from './ui';
 
@@ -37,7 +38,17 @@ export function WelcomeScreen() {
             </p>
           </div>
           <div className="welcome__actions">
-            <button className="btn btn--primary btn--lg" onClick={() => setPicker(true)} disabled={opening}>
+            <button
+              className="btn btn--primary btn--lg"
+              onClick={async () => {
+                // the desktop app has a real folder dialog; a browser falls back to the server-side picker
+                const d = desktop();
+                if (!d) return setPicker(true);
+                const chosen = await d.pickFolder();
+                if (chosen) void openProject(chosen);
+              }}
+              disabled={opening}
+            >
               <FolderOpen {...ICON} />
               Open folder…
             </button>

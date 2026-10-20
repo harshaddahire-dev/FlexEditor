@@ -17,7 +17,11 @@
     "test:e2e": "playwright test -c e2e --grep-invert @shots",
     "test:shots": "playwright test -c e2e --grep @shots",
     "eval": "pnpm --filter @cutroom/agents exec vitest run test/evals.test.ts",
-    "eval:live": "pnpm --filter @cutroom/server eval:live"
+    "eval:live": "pnpm --filter @cutroom/server eval:live",
+    "desktop": "node desktop/build.mjs run",
+    "desktop:dist": "node desktop/build.mjs dist",
+    "desktop:smoke": "node desktop/build.mjs smoke",
+    "desktop:test": "playwright test -c desktop/playwright.config.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

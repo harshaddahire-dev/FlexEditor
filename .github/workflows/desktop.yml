@@ -1,0 +1,84 @@
+name: Desktop installers
+
+# Builds the Cutroom desktop app for Windows, macOS and Linux and publishes the installers as a GitHub release.
+#   - push a tag like v0.2.0           → release v0.2.0
+#   - push to the branch below / Run workflow → release v0.1.0 (updated in place)
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+    branches: ['claude/relaxed-bohr-gbks6j']
+
+permissions:
+  contents: write # publish the installers on the release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # pnpm version comes from package.json (packageManager)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Linux only: start the packaged app headless and check the window, server, bundled FFmpeg and native bridge
+      - name: Smoke test
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: |
+          sudo apt-get update && sudo apt-get install -y xvfb
+          node desktop/build.mjs smoke
+
+      - name: Build installer
+        run: node desktop/build.mjs dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned builds: do not go looking for a signing certificate
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cutroom-${{ matrix.os }}
+          path: |
+            release/*.exe
+            release/*.dmg
+            release/*.AppImage
+          if-no-files-found: error
+
+  # one job publishes, after every build has finished, so the release is created exactly once
+  release:
+    needs: build
+    # publish whatever built, even if one platform failed
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.1.0' }}
+          target_commitish: ${{ github.sha }}
+          name: Cutroom ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.1.0' }}
+          body: |
+            Desktop app for Windows, macOS and Linux — download, install, run. FFmpeg is included; nothing else to install.
+
+            | OS | File |
+            |---|---|
+            | Windows | `Cutroom-*-win-x64.exe` |
+            | macOS | `Cutroom-*-mac-*.dmg` |
+            | Linux | `Cutroom-*-linux-x64.AppImage` (then `chmod +x` and run) |
+
+            The installers are not code-signed: on Windows choose **More info → Run anyway**; on macOS right-click the app → **Open**.
+          files: |
+            installers/*.exe
+            installers/*.dmg
+            installers/*.AppImage
