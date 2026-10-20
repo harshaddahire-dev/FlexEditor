@@ -1,0 +1,188 @@
+/* ---------- agent column (full height, chat-sidebar look) ---------- */
+.panel--right {
+  background: var(--bg-1);
+  border-left: 1px solid var(--line);
+}
+.agenthead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 40px;
+  padding: 0 var(--s-2) 0 var(--s-3);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.agenthead__tabs {
+  display: flex;
+  gap: var(--s-1);
+}
+.agenthead__tab {
+  height: 26px;
+  padding: 0 var(--s-2);
+  border-radius: 6px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.agenthead__tab:hover {
+  color: var(--text-1);
+}
+.agenthead__tab[data-state='active'] {
+  color: var(--text-1);
+  background: var(--bg-3);
+}
+.agent {
+  background: var(--bg-1);
+}
+.agent__thread--chat {
+  padding: var(--s-4) var(--s-4) var(--s-3);
+}
+.turn {
+  gap: var(--s-3);
+  margin-bottom: var(--s-5);
+}
+.msg--user {
+  max-width: 100%;
+  align-self: stretch;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 12px;
+  padding: var(--s-3);
+  line-height: 1.5;
+}
+.msg--agent {
+  gap: var(--s-2);
+  padding: 0 2px;
+}
+.msg__text p {
+  line-height: 1.6;
+}
+.tcard {
+  background: transparent;
+  border-radius: 8px;
+}
+.review {
+  border-radius: 10px;
+}
+
+/* message box: one rounded card with the model, effort and mode controls inside it */
+.composer-wrap {
+  border-top: 0;
+  background: transparent;
+  padding: 0 var(--s-3) var(--s-3);
+}
+.composer-wrap .suggest {
+  padding: var(--s-2) 0;
+}
+.composer-wrap .composer {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+}
+.composer-wrap .composer:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line-strong));
+}
+.composer-wrap .composer__input {
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  min-height: 44px;
+  max-height: 220px;
+  field-sizing: content;
+  outline: none;
+}
+.composer__row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+}
+.composer__row--send {
+  position: relative;
+  align-items: flex-start;
+}
+/* the send button sits at the top right of the controls, so the effort and mode rows can use the full width */
+.composer__row--send .composer__send {
+  position: absolute;
+  right: 0;
+  top: 0;
+}
+.composer__controls > .composer__row:first-child {
+  padding-right: 42px;
+}
+.composer__controls {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.composer__row--tune {
+  justify-content: space-between;
+}
+.composer__send {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--text-1);
+}
+.composer__send--go {
+  background: var(--accent-strong);
+  color: var(--accent-ink);
+}
+.composer__send--go:hover:not(:disabled) {
+  background: var(--accent-strong-hover);
+}
+.composer__send:disabled {
+  background: var(--bg-3);
+  color: var(--text-3);
+  cursor: default;
+}
+.composer__controls .picker {
+  min-height: 28px;
+  padding: 0 var(--s-2);
+  border-color: transparent;
+  background: transparent;
+  max-width: 100%;
+}
+.composer__controls .picker:hover {
+  background: var(--bg-3);
+}
+.composer__controls .picker__prov {
+  display: none;
+}
+.composer__controls .ctx {
+  margin: 0;
+  flex: none;
+}
+.composer__controls .ctx__bar {
+  display: none;
+}
+.seg--flat {
+  border: 0;
+  gap: 2px;
+}
+.seg--flat .seg__btn {
+  height: 22px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 11px;
+  font-size: 11px;
+  box-shadow: none;
+}
+.seg--flat .seg__btn[data-state='on'] {
+  background: var(--bg-3);
+  color: var(--text-1);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}

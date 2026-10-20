@@ -134,8 +134,19 @@ function TransportBar() {
 function ProxyNote() {
   const media = useApp((s) => s.media);
   const reproxy = useApp((s) => s.reproxy);
+  const jobs = useApp((s) => s.jobs);
   const failed = Object.values(media).filter((m) => m.status.proxy === 'failed');
-  if (!failed.length) return <div className="viewer__note" role="status">Preparing proxy…</div>;
+  if (!failed.length) {
+    const live = Object.values(jobs).filter((j) => j.kind === 'proxy' && (j.state === 'running' || j.state === 'queued'));
+    const running = live.find((j) => j.state === 'running');
+    const label = running ? `Preparing proxy… ${Math.round(running.progress * 100)}%` : live.length ? `Preparing proxy… waiting for ${live.length} job${live.length === 1 ? '' : 's'}` : 'Preparing proxy…';
+    return (
+      <div className="viewer__note" role="status">
+        {label}
+        {running ? <span className="viewer__bar"><i style={{ width: `${Math.round(running.progress * 100)}%` }} /></span> : null}
+      </div>
+    );
+  }
   const first = failed[0]!;
   const why = [...first.warnings].reverse().find((w) => w.startsWith('Proxy generation failed'))?.replace('Proxy generation failed: ', '') ?? 'unknown error';
   return (

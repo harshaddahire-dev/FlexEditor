@@ -20,6 +20,8 @@ interface Gop {
 }
 
 const MAX_GOPS = 3;
+/** Decoded frames held at once are kept under about this many bytes (I420), so long-GOP footage still plays. */
+const GOP_CACHE_BYTES = 1.2 * 1024 ** 3;
 
 /**
  * Frame-accurate random access into a proxy. The container is demuxed with mp4box, frames are decoded one GOP at a
@@ -33,6 +35,8 @@ export class VideoSource {
   /** Decode index of the sync sample that starts each GOP, keyed by decode index of any sample in it. */
   private readonly gopStart: number[];
   private readonly presOf: number[];
+  /** How many decoded GOPs stay cached: 3 normally, fewer when a GOP is huge (1 for a 250-frame 1080p GOP). */
+  private readonly maxGops: number;
 
   private constructor(
     readonly info: VideoTrackInfo,
@@ -46,6 +50,13 @@ export class VideoSource {
     }
     this.presOf = new Array<number>(info.samples.length);
     info.presentation.forEach((decodeIdx, p) => (this.presOf[decodeIdx] = p));
+    let longest = 0;
+    let run = 0;
+    for (const sm of info.samples) {
+      run = sm.sync ? 1 : run + 1;
+      longest = Math.max(longest, run);
+    }
+    this.maxGops = Math.max(1, Math.min(MAX_GOPS, Math.floor(GOP_CACHE_BYTES / Math.max(1, longest * info.width * info.height * 1.5))));
   }
 
   static async open(url: string): Promise<VideoSource> {
@@ -149,7 +160,7 @@ export class VideoSource {
       this.order.push(start);
       g.catch(() => this.evict(start, true));
       // LRU: keep the most recent GOPs only
-      while (this.order.length > MAX_GOPS) this.evict(this.order[0]!, false);
+      while (this.order.length > this.maxGops) this.evict(this.order[0]!, false);
     } else {
       const i = this.order.indexOf(start);
       if (i >= 0) (this.order.splice(i, 1), this.order.push(start));
@@ -176,6 +187,7 @@ export class VideoSource {
 
   /** Start decoding the GOP after the one containing `p`, so playback never waits at a GOP boundary. */
   prefetchAfter(p: number): void {
+    if (this.maxGops < 2) return; // a second GOP would push the one being shown out of the cache
     const decodeIdx = this.info.presentation[Math.min(p, this.info.presentation.length - 1)]!;
     const next = this.gopStart[decodeIdx]! + 1;
     for (let i = next; i < this.info.samples.length; i++) {
@@ -198,7 +210,7 @@ const MAX_GOP_BYTES = 1.2 * 1024 ** 3;
  * Can this browser decode the original file well enough to export from it? Checks the codec (WebCodecs support, which
  * is what rules out H.264/HEVC in some browsers) and that one decoded GOP fits in memory (long-GOP 4K does not).
  */
-export async function probeDecodable(url: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function probeDecodable(url: string, opts: { singleGop?: boolean } = {}): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (typeof VideoDecoder === 'undefined') return { ok: false, reason: 'this browser has no WebCodecs' };
   try {
     const info = await openVideoTrack(url);
@@ -211,7 +223,7 @@ export async function probeDecodable(url: string): Promise<{ ok: true } | { ok: 
       run = s.sync ? 1 : run + 1;
       longest = Math.max(longest, run);
     }
-    if (longest * info.width * info.height * 1.5 * 2 > MAX_GOP_BYTES) return { ok: false, reason: `its GOP is ${longest} frames of ${info.width}×${info.height}, too large to decode in the browser` };
+    if (longest * info.width * info.height * 1.5 * (opts.singleGop ? 1 : 2) > MAX_GOP_BYTES) return { ok: false, reason: `its GOP is ${longest} frames of ${info.width}×${info.height}, too large to decode in the browser` };
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: e instanceof Error ? e.message : String(e) };

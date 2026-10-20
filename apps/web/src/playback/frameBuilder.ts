@@ -3,7 +3,7 @@ import { mediaUrl } from '../lib/api';
 import { CaptionPainter } from './captions';
 import { type Drawable, type Layer, type RenderItem } from './compositor';
 import { activeCaptions, layerMatrix, planFrame, resolveTransform, sourceTicksAt } from './layers';
-import { VideoSource } from './videoSource';
+import { VideoSource, probeDecodable } from './videoSource';
 
 type SourceEntry = { key: string; ready: Promise<VideoSource | ImageBitmap> };
 
@@ -28,6 +28,10 @@ export class FrameBuilder {
   private captions: CaptionPainter | null = null;
   /** Live edits from the on-canvas handles (monitor only). */
   readonly overrides = new Map<string, Partial<Transform>>();
+  /** Can the original be decoded here while its proxy is still being made? (undefined = still checking) */
+  private readonly early = new Map<string, { key: string; ok?: boolean }>();
+  /** Called when something that was pending is now known, so the monitor can draw again. */
+  onChange: (() => void) | null = null;
 
   constructor(readonly policy: SourcePolicy) {}
 
@@ -36,8 +40,37 @@ export class FrameBuilder {
       return this.cached(media, 'original', async () => createImageBitmap(await (await fetch(mediaUrl(media.id, 'original', media.mtimeMs))).blob()));
     }
     if (this.policy === 'original') return this.cached(media, 'original', () => VideoSource.open(mediaUrl(media.id, 'original', media.mtimeMs)));
-    if (media.status.proxy !== 'done') return null;
+    if (media.status.proxy !== 'done') return this.early_(media);
     return this.cached(media, `proxy:${media.proxy?.codec ?? ''}`, () => VideoSource.open(mediaUrl(media.id, 'proxy', `${media.mtimeMs}-${media.proxy?.codec ?? ''}`)));
+  }
+
+  /**
+   * The proxy of a long or large clip can take minutes. Until it exists, show the original if this machine can decode it
+   * (the same decoder path the exporter uses), so the picture never waits on the transcode.
+   */
+  private early_(media: Media): Promise<VideoSource | ImageBitmap> | null {
+    if (media.status.proxy === 'failed' || !media.video) return null;
+    const key = `${media.mtimeMs}:${media.path}`;
+    let e = this.early.get(media.id);
+    if (!e || e.key !== key) {
+      const entry: { key: string; ok?: boolean } = { key };
+      this.early.set(media.id, entry);
+      e = entry;
+      void probeDecodable(mediaUrl(media.id, 'original', media.mtimeMs), { singleGop: true }).then((r) => {
+        entry.ok = r.ok;
+        this.onChange?.();
+      });
+    }
+    if (!e.ok) return null;
+    const entry = e;
+    return this.cached(media, 'original', async () => {
+      try {
+        return await VideoSource.open(mediaUrl(media.id, 'original', media.mtimeMs));
+      } catch (err) {
+        entry.ok = false; // wait for the proxy instead of showing an error
+        throw err;
+      }
+    });
   }
 
   private cached(media: Media, tag: string, make: () => Promise<VideoSource | ImageBitmap>): Promise<VideoSource | ImageBitmap> {

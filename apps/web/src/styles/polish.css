@@ -2089,3 +2089,18 @@ body {
   border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
   border-radius: var(--r-2, 6px);
 }
+
+.viewer__note .viewer__bar {
+  display: block;
+  height: 2px;
+  margin-top: 6px;
+  background: var(--line-strong);
+  border-radius: 1px;
+  overflow: hidden;
+}
+.viewer__note .viewer__bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s linear;
+}

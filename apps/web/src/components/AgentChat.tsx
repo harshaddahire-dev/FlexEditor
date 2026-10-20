@@ -1,11 +1,10 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, Brain, Check, ChevronRight, CircleDashed, Eye, EyeOff, Hand, Loader2, Send, Square, Undo2, X } from 'lucide-react';
+import { AlertTriangle, ArrowUp, Brain, Check, ChevronRight, CircleDashed, Eye, EyeOff, Hand, Loader2, Square, Undo2, X } from 'lucide-react';
 import { type ChatTurn, diffSummary } from '@cutroom/core';
 import { ROLE_LABEL, type Step, arrange, stepsOf, toolLabel } from '../lib/agentView';
 import { useAgent } from '../store/agent';
 import { useExtensions } from '../store/extensions';
 import { useTimeline } from '../store/timeline';
-import { ICON } from './ui';
 
 const SUGGESTIONS = [
   'Put everything on the timeline in a sensible order',
@@ -175,7 +174,7 @@ export function AgentThread() {
   );
 }
 
-export function Composer() {
+export function Composer({ controls }: { controls?: ReactNode }) {
   const { settings, providers, activeRunId, send, stop, sendError, turns } = useAgent();
   const [text, setText] = useState('');
   const ready = !!settings.providerId && !!settings.model && providers.length > 0;
@@ -247,11 +246,14 @@ export function Composer() {
             }
           }}
         />
-        {busy ? (
-          <button className="btn btn--icon" type="button" aria-label="Stop" onClick={() => void stop()}><Square size={13} fill="currentColor" /></button>
-        ) : (
-          <button className="btn btn--primary btn--icon" type="submit" disabled={!ready || !text.trim()} aria-label="Send"><Send {...ICON} size={14} /></button>
-        )}
+        <div className="composer__row composer__row--send">
+          {controls ? <div className="composer__controls">{controls}</div> : <span className="spacer" />}
+          {busy ? (
+            <button className="composer__send" type="button" aria-label="Stop" onClick={() => void stop()}><Square size={13} fill="currentColor" /></button>
+          ) : (
+            <button className="composer__send composer__send--go" type="submit" disabled={!ready || !text.trim()} aria-label="Send"><ArrowUp size={16} strokeWidth={2} /></button>
+          )}
+        </div>
       </form>
     </div>
   );

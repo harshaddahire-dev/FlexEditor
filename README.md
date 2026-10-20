@@ -130,6 +130,8 @@ handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timec
 - **Program monitor.** Video proxies (H.264, or VP9 when the browser cannot decode H.264 — the browser reports which) are demuxed
   with mp4box from a Range-fetched sample table and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
   for a timeline tick is chosen with integer arithmetic, so the flash frame of the sync asset lands on exactly its frame.
+  Proxies of long or 4K clips take a while (they are queued ahead of analysis, made with a fast encoder preset, and shown with a
+  progress bar); until one exists the monitor decodes the original file when this machine can, so the picture never waits.
 - **Audio.** `planAudio` turns the sequence into *voices* (mute/solo, gain, balance, fades, and 8 ms equal-power crossfades at cuts
   that have handle media). Voices are baked to stereo in half-second slices on absolute sample boundaries and placed on the
   `AudioContext` timeline at exact sample times; the audio clock is the playback master clock. Export uses the *same* slices through

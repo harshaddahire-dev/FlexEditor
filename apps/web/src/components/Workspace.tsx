@@ -28,26 +28,31 @@ export function Workspace() {
   const [timeline, setTimeline] = usePersistedSize('timelineH', Math.round(vh() * 0.4), TIMELINE.min, TIMELINE.max);
 
   const vars = { '--left-w': `${left}px`, '--right-w': `${right}px`, '--timeline-h': `${timeline}px` } as CSSProperties;
+  // The agent is a full-height column on the right (like a chat sidebar); the top bar, library, monitor and timeline share the rest.
   return (
-    <div className="app">
-      <TopBar />
-      <div className="workspace" style={vars} data-right={rightOpen ? 'open' : 'collapsed'}>
-        <LeftPanel />
-        <Splitter orientation="v" value={left} onChange={setLeft} label="Resize library panel" style={{ gridColumn: 2 }} />
-        <Viewer />
+    <>
+      <div className="app" style={vars} data-right={rightOpen ? 'open' : 'collapsed'}>
+        <div className="app__main">
+          <TopBar />
+          <div className="workspace">
+            <LeftPanel />
+            <Splitter orientation="v" value={left} onChange={setLeft} label="Resize library panel" style={{ gridColumn: 2 }} />
+            <Viewer />
+            <Splitter orientation="h" value={timeline} onChange={setTimeline} invert label="Resize timeline" />
+            <TimelinePanel />
+          </div>
+        </div>
         {rightOpen ? (
           <>
-            <Splitter orientation="v" value={right} onChange={setRight} invert label="Resize agent panel" style={{ gridColumn: 4 }} />
+            <Splitter orientation="v" value={right} onChange={setRight} invert label="Resize agent panel" style={{ gridColumn: 2, gridRow: 1 }} />
             <AgentPanel />
           </>
         ) : null}
-        <Splitter orientation="h" value={timeline} onChange={setTimeline} invert label="Resize timeline" />
-        <TimelinePanel />
       </div>
       <Toasts />
       <SettingsDialog />
       <RenderDialog />
       <KeyboardLayer />
-    </div>
+    </>
   );
 }

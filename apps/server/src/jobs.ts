@@ -13,6 +13,8 @@ export interface JobSpec {
   kind: JobKind;
   label: string;
   mediaId?: string;
+  /** Runs before queued jobs without priority (proxies: nothing plays until they exist). */
+  priority?: boolean;
   run(ctx: JobContext): Promise<void>;
 }
 
@@ -47,7 +49,10 @@ export class JobQueue extends EventEmitter<{ update: [JobInfo] }> {
       resolve,
     };
     this.entries.set(entry.info.id, entry);
-    this.pending.push(entry);
+    if (spec.priority) {
+      const at = this.pending.findIndex((p) => !p.spec.priority);
+      this.pending.splice(at < 0 ? this.pending.length : at, 0, entry);
+    } else this.pending.push(entry);
     this.emitUpdate(entry);
     queueMicrotask(() => this.pump());
     return { ...entry.info };

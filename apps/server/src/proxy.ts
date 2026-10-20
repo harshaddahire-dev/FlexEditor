@@ -68,7 +68,7 @@ export function planProxy(
   // Single scale step: pixel-aspect + rotation already folded into width/height; convert colour to BT.709 limited.
   const untagged = !video.colorSpace;
   const inMatrix = untagged && !video.hdr ? `:in_color_matrix=${video.height >= 720 ? 'bt709' : 'bt601'}` : '';
-  chain.push(`scale=${width}:${height}:flags=lanczos+accurate_rnd+full_chroma_int:out_color_matrix=bt709:out_range=tv${inMatrix}`);
+  chain.push(`scale=${width}:${height}:flags=bicubic+accurate_rnd:out_color_matrix=bt709:out_range=tv${inMatrix}`);
   chain.push('setsar=1');
   chain.push('format=yuv420p');
 
@@ -84,7 +84,7 @@ export function buildProxyArgs(src: string, out: string, plan: ProxyPlan): strin
     args.push('-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-crf', '30', '-b:v', '0',
       '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-lag-in-frames', '0', '-auto-alt-ref', '0', '-tag:v', 'vp09');
   } else {
-    args.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-sc_threshold', '0', '-bf', '0');
+    args.push('-c:v', 'libx264', '-preset', 'superfast', '-crf', '22', '-g', String(plan.gop), '-keyint_min', String(plan.gop), '-sc_threshold', '0', '-bf', '0');
   }
   args.push('-pix_fmt', 'yuv420p', '-colorspace', 'bt709', '-color_primaries', 'bt709', '-color_trc', 'bt709', '-color_range', 'tv');
   args.push('-movflags', '+faststart', '-f', 'mp4', '-progress', 'pipe:1', '-nostats', out);

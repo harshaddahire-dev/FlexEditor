@@ -138,40 +138,50 @@ function ContextMeter() {
   );
 }
 
-/** Model, effort, mode and context meter, plus the composer (live once the agent runtime lands). */
+/** Model, effort and mode: the controls that sit under the message box. */
+function Controls() {
+  const { settings, setSettings } = useAgent();
+  return (
+    <>
+      <div className="composer__row">
+        <ModelPicker />
+        <span className="spacer" />
+        <ContextMeter />
+      </div>
+      <div className="composer__row composer__row--tune">
+        <div className="seg seg--flat" role="radiogroup" aria-label="Reasoning effort">
+          {EFFORTS.map((e) => (
+            <Tip key={e} label={`Effort: ${EFFORT_HINT[e]}`}>
+              <button type="button" role="radio" aria-checked={settings.effort === e} className="seg__btn" data-state={settings.effort === e ? 'on' : 'off'} onClick={() => void setSettings({ effort: e })}>
+                {EFFORT_LABEL[e]}
+              </button>
+            </Tip>
+          ))}
+        </div>
+        <span className="spacer" />
+        <div className="seg seg--flat" role="radiogroup" aria-label="Agent mode">
+          {AGENT_MODES.map((m) => (
+            <Tip key={m} label={`${MODE_LABEL[m]}: ${MODE_HINT[m]}`}>
+              <button type="button" role="radio" aria-label={MODE_LABEL[m]} aria-checked={settings.mode === m} className="seg__btn" data-state={settings.mode === m ? 'on' : 'off'} onClick={() => void setSettings({ mode: m })}>
+                {m === 'full' ? 'Full' : MODE_LABEL[m]}
+              </button>
+            </Tip>
+          ))}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/** The agent column: conversation on top, message box with its controls at the bottom. */
 export function AgentSetup() {
-  const { settings, setSettings, providers, loaded, turns } = useAgent();
+  const { settings, providers, loaded, turns } = useAgent();
   const openSettings = useUi((s) => s.openSettings);
   const noProvider = loaded && providers.length === 0;
   const ready = useMemo(() => !!settings.providerId && !!settings.model, [settings]);
 
   return (
     <div className="agent">
-      <div className="agent__setup">
-        <ModelPicker />
-        <div className="agent__pair">
-          <div className="seg seg--fill" role="radiogroup" aria-label="Reasoning effort">
-            {EFFORTS.map((e) => (
-              <Tip key={e} label={`Effort: ${EFFORT_HINT[e]}`}>
-                <button role="radio" aria-checked={settings.effort === e} className="seg__btn" data-state={settings.effort === e ? 'on' : 'off'} onClick={() => void setSettings({ effort: e })}>
-                  {EFFORT_LABEL[e]}
-                </button>
-              </Tip>
-            ))}
-          </div>
-          <div className="seg seg--fill" role="radiogroup" aria-label="Agent mode">
-            {AGENT_MODES.map((m) => (
-              <Tip key={m} label={`${MODE_LABEL[m]}: ${MODE_HINT[m]}`}>
-                <button role="radio" aria-label={MODE_LABEL[m]} aria-checked={settings.mode === m} className="seg__btn" data-state={settings.mode === m ? 'on' : 'off'} onClick={() => void setSettings({ mode: m })}>
-                  {m === 'full' ? 'Full' : MODE_LABEL[m]}
-                </button>
-              </Tip>
-            ))}
-          </div>
-        </div>
-        <ContextMeter />
-      </div>
-
       {noProvider ? (
         <div className="agent__thread">
           <div className="empty empty--center">
@@ -187,13 +197,13 @@ export function AgentSetup() {
         <div className="agent__thread">
           <div className="empty empty--center">
             <Bot size={28} strokeWidth={1.25} />
-            <p>{ready ? 'What should we cut?' : 'Pick a model above.'}</p>
+            <p>{ready ? 'What should we cut?' : 'Pick a model below.'}</p>
             <p className="faint">The Director plans the edit and hands focused jobs to a Cutter, Audio and other specialists. You see every step and can undo the whole run.</p>
           </div>
         </div>
       )}
 
-      <Composer />
+      <Composer controls={<Controls />} />
     </div>
   );
 }

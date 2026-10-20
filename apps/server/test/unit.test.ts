@@ -307,6 +307,20 @@ describe('JobQueue', () => {
     expect(states.filter((s) => s.endsWith(':done'))).toHaveLength(4);
   });
 
+  it('runs priority jobs (proxies) ahead of queued analysis, in order among themselves', async () => {
+    const q = new JobQueue(1);
+    const order: string[] = [];
+    const job = (label: string, priority?: boolean) => q.add({ kind: 'proxy', label, priority, run: async () => void order.push(label) });
+    job('running');
+    await tick(5); // it has started: the next jobs queue behind it
+    job('analysis-1');
+    job('analysis-2');
+    job('proxy-1', true);
+    job('proxy-2', true);
+    await q.idle();
+    expect(order).toEqual(['running', 'proxy-1', 'proxy-2', 'analysis-1', 'analysis-2']);
+  });
+
   it('cancels queued and running jobs; failures are captured', async () => {
     const q = new JobQueue(1);
     const running = q.add({ kind: 'proxy', label: 'run', run: ({ signal }) => new Promise((_, rej) => signal.addEventListener('abort', () => rej(new Error('x')))) });

@@ -276,8 +276,19 @@ select.input {
 /* ---------- workspace shell ---------- */
 .app {
   display: grid;
-  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--splitter) var(--right-w);
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
+}
+.app[data-right='collapsed'] {
+  grid-template-columns: minmax(0, 1fr) 0 0;
+}
+.app__main {
+  grid-column: 1;
+  display: grid;
+  grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
 }
 .topbar {
   display: flex;
@@ -333,11 +344,8 @@ select.input {
   display: grid;
   min-height: 0;
   min-width: 0;
-  grid-template-columns: var(--left-w) var(--splitter) minmax(0, 1fr) var(--splitter) var(--right-w);
+  grid-template-columns: var(--left-w) var(--splitter) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) var(--splitter) var(--timeline-h);
-}
-.workspace[data-right='collapsed'] {
-  grid-template-columns: var(--left-w) var(--splitter) minmax(0, 1fr) 0 0;
 }
 .panel {
   background: var(--bg-1);
@@ -357,7 +365,7 @@ select.input {
   background: var(--bg-0);
 }
 .panel--right {
-  grid-column: 5;
+  grid-column: 3;
   grid-row: 1;
 }
 .panel--timeline {
