@@ -10,6 +10,7 @@ export async function resetProject(request: APIRequestContext): Promise<void> {
   await request.post('/api/project/close');
   await fs.rm(path.join(process.env.E2E_FOOTAGE!, '.cutroom'), { recursive: true, force: true });
   await fs.rm(path.join(process.env.E2E_FOOTAGE!, 'uploads'), { recursive: true, force: true });
+  await fs.rm(path.join(process.env.E2E_FOOTAGE!, 'exports'), { recursive: true, force: true });
 }
 
 export type Clip = { id: string; start: number; duration: number; sourceIn: number; kind: string };
@@ -77,4 +78,10 @@ export async function openFootageAndInsert(page: Page): Promise<void> {
   await page.keyboard.press(',');
   await page.getByRole('button', { name: 'Program', exact: true }).click();
   await proxyReady(page);
+}
+
+/** Like resetProject, for another footage folder. */
+export async function resetFolder(request: APIRequestContext, dir: string): Promise<void> {
+  await request.post('/api/project/close');
+  await fs.rm(path.join(dir, '.cutroom'), { recursive: true, force: true });
 }

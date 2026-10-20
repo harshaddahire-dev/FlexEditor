@@ -1,16 +1,17 @@
-import { type PointerEvent as RPointerEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Lock, LockOpen, Magnet, MousePointer2, Link2, Scissors, ChevronsRight, Volume2, VolumeX, ZoomIn, ZoomOut, Maximize2, Headphones } from 'lucide-react';
+import { type PointerEvent as RPointerEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Lock, LockOpen, Magnet, MousePointer2, Link2, Scissors, ChevronsRight, Volume2, VolumeX, ZoomIn, ZoomOut, Maximize2, Headphones, Eye, EyeOff } from 'lucide-react';
 import { type Op, type Sequence, framesToTimecode, frameTicks, isClip, itemEnd, sequenceDuration, trackItems } from '@cutroom/core';
 import { ACTIONS, dispatch } from '../lib/actions';
 import { dryRun, makeEnv } from '../lib/env';
 import { mediaUrl } from '../lib/api';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
+import { reviewDiff, useAgent } from '../store/agent';
 import { filmstripOf, silencesOf, useAnalysis, waveformOf } from '../store/analysis';
 import { useUi } from '../store/ui';
 import { CommandError, expandLinked, moveSelection, placeMedia, selectForward, splitClipAt } from '../timeline/commands';
 import { HEADER_W, RULER_H, hitTest, snapPoints, snapTicks, trackRows, xToTicks, type Hit } from '../timeline/geometry';
-import { type Preview, drawTimeline, readTheme, type Theme } from '../timeline/render';
+import { type Preview, drawTimeline, readTheme, timelineStats, type Theme } from '../timeline/render';
 import { ICON, Tip } from './ui';
 
 export const MEDIA_MIME = 'application/x-cutroom-media';
@@ -84,11 +85,20 @@ function Headers({ seq }: { seq: Sequence }) {
       <div className="tlh__rows">
         {rows.map(({ track, y, h }) => (
           <div key={track.id} className="tlh__row" data-kind={track.kind} data-testid={`track-${track.name}`} style={{ top: y - scrollY, height: h }}>
-            <span className="tlh__name" title={track.name}>{track.name}</span>
+            <span className="tlh__id">
+              <span className="tlh__name" title={track.name}>{track.name}</span>
+              {h >= 44 ? <span className="tlh__kind">{track.kind === 'video' ? 'Video' : track.kind === 'audio' ? 'Audio' : track.kind}</span> : null}
+            </span>
             <div className="tlh__btns">
-              <Tip label={track.muted ? 'Unmute' : 'Mute'}>
-                <button className="tlh__btn" aria-label={`${track.muted ? 'Unmute' : 'Mute'} ${track.name}`} aria-pressed={track.muted} data-on={track.muted} onClick={() => set(track.id, { muted: !track.muted }, `${track.muted ? 'Unmute' : 'Mute'} ${track.name}`)}>
-                  {track.muted ? <VolumeX size={13} strokeWidth={1.5} /> : <Volume2 size={13} strokeWidth={1.5} />}
+              <Tip label={track.kind === 'video' ? (track.muted ? 'Show track' : 'Hide track') : track.muted ? 'Unmute' : 'Mute'}>
+                <button
+                  className="tlh__btn"
+                  aria-label={`${track.kind === 'video' ? (track.muted ? 'Show' : 'Hide') : track.muted ? 'Unmute' : 'Mute'} ${track.name}`}
+                  aria-pressed={track.muted}
+                  data-on={track.muted}
+                  onClick={() => set(track.id, { muted: !track.muted }, `${track.kind === 'video' ? (track.muted ? 'Show' : 'Hide') : track.muted ? 'Unmute' : 'Mute'} ${track.name}`)}
+                >
+                  {track.kind === 'video' ? (track.muted ? <EyeOff size={13} strokeWidth={1.5} /> : <Eye size={13} strokeWidth={1.5} />) : track.muted ? <VolumeX size={13} strokeWidth={1.5} /> : <Volume2 size={13} strokeWidth={1.5} />}
                 </button>
               </Tip>
               {track.kind === 'audio' ? (
@@ -181,6 +191,7 @@ function TimelineBody() {
     const w = c.width / dpr;
     const h = c.height / dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const started = performance.now();
     drawTimeline(ctx, {
       seq: s, view: t.view, theme: theme.current, width: w, height: h, playhead: t.playhead, inPoint: t.inPoint, outPoint: t.outPoint,
       selection: t.selection, hoverId: hover.current, preview: preview.current, snapGuide: guide.current,
@@ -188,6 +199,7 @@ function TimelineBody() {
       waveform: (id) => waveformOf(app.media[id]),
       filmstrip: (id) => filmstripOf(app.media[id]),
       silences: (id) => silencesOf(app.media[id]),
+      review: reviewDiff(),
       poster: (id) => {
         const m = app.media[id];
         if (!m || m.status.poster !== 'done') return null;
@@ -201,6 +213,10 @@ function TimelineBody() {
         return img.complete && img.naturalWidth ? img : null;
       },
     });
+    const took = performance.now() - started;
+    timelineStats.draws++;
+    timelineStats.totalMs += took;
+    timelineStats.maxMs = Math.max(timelineStats.maxMs, took);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -235,7 +251,7 @@ function TimelineBody() {
   }, [themeName, invalidate]);
 
   useEffect(() => {
-    const unsub = [useTimeline.subscribe(invalidate), useApp.subscribe(invalidate), useAnalysis.subscribe(invalidate)];
+    const unsub = [useTimeline.subscribe(invalidate), useApp.subscribe(invalidate), useAnalysis.subscribe(invalidate), useAgent.subscribe(invalidate)];
     invalidate();
     return () => unsub.forEach((u) => u());
   }, [invalidate]);
@@ -476,6 +492,9 @@ function TimelineBody() {
       <div className="tl__stage" ref={wrap}>
         <canvas
           ref={canvas}
+          role="application"
+          aria-roledescription="timeline"
+          aria-describedby="tl-help"
           aria-label="Timeline canvas"
           data-testid="timeline-canvas"
           tabIndex={0}
@@ -489,6 +508,7 @@ function TimelineBody() {
           onDrop={onDrop}
           onContextMenu={(e) => e.preventDefault()}
         />
+        <ClipList seq={seq} />
         {isEmpty ? (
           <div className="tl__empty" aria-live="polite">
             <p>The timeline is empty.</p>
@@ -497,6 +517,57 @@ function TimelineBody() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+const ClipRow = memo(function ClipRow({ id, label, start, pressed }: { id: string; label: string; start: number; pressed: boolean }) {
+  return (
+    <li>
+      <button type="button" aria-pressed={pressed} onClick={() => { const t = useTimeline.getState(); t.select([id]); t.setPlayhead(start, useApp.getState().sequence); }}>{label}</button>
+    </li>
+  );
+});
+
+/**
+ * The timeline is a canvas, which assistive technology cannot read. This is its text twin: instructions, a list of every clip
+ * (activate one to select it and move the playhead there) and the current selection announced as it changes.
+ */
+function ClipList({ seq }: { seq: Sequence }) {
+  const media = useApp((s) => s.media);
+  const selection = useTimeline((s) => s.selection);
+  const f = frameTicks(seq.timebase);
+  const tc = (t: number) => framesToTimecode(Math.round(t / f), seq.timebase.fps);
+  const items = useMemo(() => {
+    const out: { id: string; label: string; start: number }[] = [];
+    for (const track of seq.tracks) {
+      for (const item of trackItems(track)) {
+        if (out.length >= 500) break;
+        const name = isClip(item) ? (media[item.mediaId]?.name ?? item.name ?? 'clip') : item.words.map((w) => w.text).join(' ').slice(0, 40) || 'caption';
+        out.push({ id: item.id, start: item.start, label: `${name} · ${track.name} · ${tc(item.start)} to ${tc(itemEnd(item))}` });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seq, media]);
+  const chosen = items.filter((i) => selection.has(i.id));
+  // the list itself only changes when the clips do; a selection change just flips aria-pressed on a few rows
+  const rows = useMemo(
+    () => items.map((i) => ({ ...i, pressed: false })),
+    [items],
+  );
+  return (
+    <>
+      <p id="tl-help" className="sr-only">
+        Timeline. Use the arrow keys to move the playhead by a frame, Home and End to jump to the start and end, Up and Down to move between edit points, S to toggle snapping, Shift+C to split at the playhead and Delete to remove the selection.
+        A list of every clip follows the timeline: press Enter on a clip to select it and move the playhead to it.
+      </p>
+      <ul className="sr-only" aria-label="Timeline clips">
+        {rows.map((i) => (
+          <ClipRow key={i.id} id={i.id} label={i.label} start={i.start} pressed={selection.has(i.id)} />
+        ))}
+      </ul>
+      <div className="sr-only" role="status" aria-label="Selection">{chosen.length ? `Selected ${chosen.length === 1 ? chosen[0]!.label : `${chosen.length} items`}` : 'Nothing selected'}</div>
+    </>
   );
 }
 

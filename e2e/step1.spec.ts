@@ -105,7 +105,8 @@ test('open folder → import → proxies → inspect → upload → persist → 
   // --- remove from project (file stays on disk, stays removed)
   const still = bin.getByRole('option', { name: /still\.png/ });
   await still.hover();
-  await still.getByRole('button', { name: /Actions for still\.png/ }).click();
+  await still.focus();
+  await page.keyboard.press('Shift+F10'); // the item menu opens from the keyboard (the visible "…" is a mouse shortcut)
   await page.getByRole('menuitem', { name: 'Remove from project' }).click();
   await expect(bin.getByRole('option')).toHaveCount(3);
 
@@ -123,6 +124,8 @@ test('open folder → import → proxies → inspect → upload → persist → 
 test('panels resize with the keyboard and persist; agent panel collapses', async ({ page }) => {
   const errors = watchErrors(page);
   await page.goto('/');
+  // the server may still have the previous test's project open: wait for whichever screen appears
+  await expect(page.locator('.panel--left').or(page.getByLabel('Project folder path'))).toBeVisible();
   if (await page.getByLabel('Project folder path').isVisible()) {
     await page.getByLabel('Project folder path').fill(footage());
     await page.getByRole('button', { name: 'Open', exact: true }).click();

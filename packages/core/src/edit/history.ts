@@ -18,6 +18,8 @@ export interface Transaction {
   revision: number;
   at: number;
   coalesceKey?: string;
+  /** Transactions sharing a group (one agent run) can be undone and redone together. */
+  group?: string;
 }
 
 export type EditorEvent =
@@ -31,6 +33,7 @@ export interface EditorOptions {
 }
 
 interface OpenTx {
+  group?: string;
   label: string;
   origin: Origin;
   startState: Sequence;
@@ -119,16 +122,16 @@ export class Editor {
     this.emit({ type: 'load', revision: this._revision, patches: [], state: this._state });
   }
 
-  begin(label: string, origin: Origin = 'user'): void {
+  begin(label: string, origin: Origin = 'user', group?: string): void {
     if (this.open) throw new EditError('invalid', 'A transaction is already open.');
-    this.open = { label, origin, startState: this._state, ops: [], patches: [], inverse: [] };
+    this.open = { label, origin, group, startState: this._state, ops: [], patches: [], inverse: [] };
     this.workingState = this._state;
   }
 
   /** Apply one operation. Inside a transaction it is staged; outside it commits as its own transaction. */
-  apply(op: Op | ParsedOp, opts: { label?: string; origin?: Origin; coalesceKey?: string } = {}): Transaction | null {
+  apply(op: Op | ParsedOp, opts: { label?: string; origin?: Origin; coalesceKey?: string; group?: string } = {}): Transaction | null {
     if (!this.open) {
-      this.begin(opts.label ?? defaultLabel(op), opts.origin ?? 'user');
+      this.begin(opts.label ?? defaultLabel(op), opts.origin ?? 'user', opts.group);
       try {
         this.stage(op);
       } catch (e) {
@@ -159,12 +162,12 @@ export class Editor {
       this.workingState = this._state;
       return null;
     }
-    const record = this.record({ label: summary ?? tx.label, origin: tx.origin, ops: tx.ops, patches: tx.patches, inverse: [...tx.inverse].reverse().flat(), state: this.workingState, coalesceKey });
+    const record = this.record({ label: summary ?? tx.label, origin: tx.origin, group: tx.group, ops: tx.ops, patches: tx.patches, inverse: [...tx.inverse].reverse().flat(), state: this.workingState, coalesceKey });
     return record;
   }
 
   /** Push a finished transaction onto the undo stack (merging with the previous one when it is a drag of the same key). */
-  private record(r: { label: string; origin: Origin; ops: ParsedOp[]; patches: Patch[]; inverse: Patch[]; state: Sequence; coalesceKey?: string }): Transaction {
+  private record(r: { label: string; origin: Origin; group?: string; ops: ParsedOp[]; patches: Patch[]; inverse: Patch[]; state: Sequence; coalesceKey?: string }): Transaction {
     const at = this.now();
     this._state = r.state;
     this.workingState = r.state;
@@ -188,6 +191,7 @@ export class Editor {
         inverse: r.inverse,
         revision: ++this._revision,
         at,
+        ...(r.group ? { group: r.group } : {}),
         ...(r.coalesceKey ? { coalesceKey: r.coalesceKey } : {}),
       };
       this.undoStack.push(record);
@@ -227,6 +231,26 @@ export class Editor {
     this._revision++;
     this.emit({ type: 'undo', revision: this._revision, patches: tx.inverse, transaction: tx, state: this._state });
     return tx;
+  }
+
+  /** Undo every transaction of `group` at the top of the stack (one agent run). Returns how many were undone. */
+  undoGroup(group: string): number {
+    let n = 0;
+    while (this.undoStack[this.undoStack.length - 1]?.group === group) {
+      this.undo();
+      n++;
+    }
+    return n;
+  }
+
+  /** Redo the transactions of `group` that sit at the top of the redo stack. */
+  redoGroup(group: string): number {
+    let n = 0;
+    while (this.redoStack[this.redoStack.length - 1]?.group === group) {
+      this.redo();
+      n++;
+    }
+    return n;
   }
 
   redo(): Transaction | null {

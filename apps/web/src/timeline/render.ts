@@ -1,4 +1,5 @@
 import { type Clip, type Sequence, type Track, type TrackItem, frameTicks, isClip, itemEnd } from '@cutroom/core';
+import type { SequenceDiff } from '@cutroom/core';
 import type { FilmstripData, SilenceData, WaveformData } from '../store/analysis';
 import { drawSilences, drawWaveform } from './waveform';
 import { RULER_H, type View, rulerTicks, ticksToX, trackRows, visibleItems } from './geometry';
@@ -8,6 +9,7 @@ export interface Theme {
   text1: string; text2: string; text3: string;
   accent: string; accentSoft: string; playhead: string; success: string; warn: string; danger: string;
   clipVideo: string; clipAudio: string; clipCaption: string; clipGraphics: string;
+  clipVideoHd: string; clipAudioHd: string; clipCaptionHd: string; clipGraphicsHd: string;
   fontUi: string; fontMono: string;
 }
 
@@ -15,11 +17,12 @@ export function readTheme(el: Element = document.documentElement): Theme {
   const cs = getComputedStyle(el);
   const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
   return {
-    bg0: v('--bg-0', '#0b0c0e'), bg1: v('--bg-1', '#121417'), bg2: v('--bg-2', '#181b1f'), bg3: v('--bg-3', '#20242a'), line: v('--line', '#2a2f36'),
+    bg0: v('--bg-0', '#111112'), bg1: v('--bg-1', '#19191b'), bg2: v('--bg-2', '#222225'), bg3: v('--bg-3', '#2b2b2f'), line: v('--line', '#2a2a2e'),
     text1: v('--text-1', '#e7e9ec'), text2: v('--text-2', '#a4abb4'), text3: v('--text-3', '#6b737d'),
     accent: v('--accent', '#4c8dff'), accentSoft: v('--accent-soft', 'rgba(76,141,255,.14)'), playhead: v('--playhead', '#ff5436'),
     success: v('--success', '#3dbe8b'), warn: v('--warn', '#e8b33a'), danger: v('--danger', '#f0524f'),
-    clipVideo: v('--clip-video', '#34588c'), clipAudio: v('--clip-audio', '#2f7a5c'), clipCaption: v('--clip-caption', '#8c7330'), clipGraphics: v('--clip-graphics', '#6e4e99'),
+    clipVideo: v('--clip-video', '#3a5a86'), clipAudio: v('--clip-audio', '#2f6b52'), clipCaption: v('--clip-caption', '#8c7330'), clipGraphics: v('--clip-graphics', '#6e4e99'),
+    clipVideoHd: v('--clip-video-hd', '#4f73a6'), clipAudioHd: v('--clip-audio-hd', '#3f8a6b'), clipCaptionHd: v('--clip-caption-hd', '#a68a3a'), clipGraphicsHd: v('--clip-graphics-hd', '#8a63b8'),
     fontUi: v('--font-ui', 'Inter, sans-serif'), fontMono: v('--font-mono', 'monospace'),
   };
 }
@@ -50,9 +53,12 @@ export interface DrawParams {
   waveform?: (mediaId: string) => WaveformData | null;
   filmstrip?: (mediaId: string) => FilmstripData | null;
   silences?: (mediaId: string) => SilenceData | null;
+  /** What the agent run under review changed (for the ghost overlay). */
+  review?: SequenceDiff | null;
 }
 
 const kindColor = (t: Theme, kind: Track['kind']): string => ({ video: t.clipVideo, audio: t.clipAudio, caption: t.clipCaption, graphics: t.clipGraphics })[kind];
+const headColor = (t: Theme, kind: Track['kind']): string => ({ video: t.clipVideoHd, audio: t.clipAudioHd, caption: t.clipCaptionHd, graphics: t.clipGraphicsHd })[kind];
 
 /** Crisp 1px line at the pixel centre. */
 function vline(ctx: CanvasRenderingContext2D, x: number, y0: number, y1: number): void {
@@ -81,18 +87,32 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
   const clip = isClip(item) ? item : null;
   const disabled = clip && !clip.enabled;
 
+  // zoomed far out, a clip is a few pixels wide: a plain block says everything a detailed one would, at a fraction of the cost
+  // (this is what keeps a 1,200-clip timeline at 60 fps with the whole thing in view)
+  if (w < 8 && !selected && !ghost) {
+    ctx.globalAlpha = disabled ? 0.4 : 1;
+    ctx.fillStyle = kindColor(t, track.kind);
+    ctx.fillRect(x0, y, Math.max(1, w - (w > 3 ? 1 : 0)), h);
+    if (w > 3) {
+      ctx.fillStyle = headColor(t, track.kind);
+      ctx.fillRect(x0, y, Math.max(1, w - 1), Math.min(15, h));
+    }
+    ctx.globalAlpha = 1;
+    return;
+  }
+
   ctx.save();
   ctx.globalAlpha = ghost ? 0.55 : disabled ? 0.4 : 1;
   const base = kindColor(t, track.kind);
   ctx.fillStyle = base;
   ctx.beginPath();
-  ctx.roundRect(x0, y, w, h, 3);
+  ctx.roundRect(x0, y, w, h, 2);
   ctx.fill();
   ctx.clip();
 
-  // header strip (lighter) + label
-  if (w > 6) {
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
+  // title bar: a lighter band in the clip's colour, like the grading-suite timelines
+  if (w > 3) {
+    ctx.fillStyle = headColor(t, track.kind);
     ctx.fillRect(x0, y, w, Math.min(15, h));
   }
   // video: filmstrip tiles across the clip, falling back to the poster at its head
@@ -142,20 +162,27 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
     if (fo > 1) (ctx.beginPath(), ctx.moveTo(x1, y + h), ctx.lineTo(x1 - fo, y + 15), ctx.lineTo(x1, y + 15), ctx.closePath(), ctx.fill());
   }
   if (w > 28) {
-    ctx.fillStyle = t.text1;
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
     ctx.font = `500 11px ${t.fontUi}`;
     ctx.textBaseline = 'top';
     const badges = clip && (clip.speed.num !== clip.speed.den ? ` ×${(clip.speed.num / clip.speed.den).toFixed(2).replace(/\.?0+$/, '')}` : '') + (clip && clip.audio.gainDb !== 0 && track.kind === 'audio' ? ` ${clip.audio.gainDb > 0 ? '+' : ''}${clip.audio.gainDb.toFixed(0)} dB` : '');
     ctx.fillText(itemLabel(item, p) + (badges ?? ''), x0 + 5, y + 2, Math.max(0, w - 10));
   }
+  // hairline edge so adjacent clips read as separate pieces
+  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.roundRect(x0 + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 2);
+  ctx.stroke();
   ctx.restore();
 
   // outlines: agent-made (until accepted), selected, hovered
   const agent = item.createdBy !== 'user' && !item.accepted;
   if (agent || selected || p.hoverId === item.id) {
     ctx.save();
-    ctx.lineWidth = selected ? 2 : 1;
-    ctx.strokeStyle = selected ? t.text1 : t.accent;
+    ctx.lineWidth = selected ? 1.5 : 1;
+    ctx.strokeStyle = selected ? '#ffffff' : t.accent;
+    if (selected) (ctx.shadowColor = 'rgba(255,255,255,0.35)', ctx.shadowBlur = 4);
     ctx.globalAlpha = ghost ? 0.7 : selected ? 1 : p.hoverId === item.id && !agent ? 0.45 : 1;
     ctx.beginPath();
     ctx.roundRect(x0 + 0.5, y + 0.5, Math.max(1, w - 1), h - 1, 3);
@@ -174,7 +201,41 @@ function drawItem(ctx: CanvasRenderingContext2D, p: DrawParams, row: { y: number
   }
 }
 
+/**
+ * The review overlay: where removed items used to be (red, dashed) and where changed items used to sit (amber, dashed),
+ * so a run's cuts can be judged on the timeline itself. Added items need no ghost — they carry the "AI" badge.
+ */
+export function drawReview(ctx: CanvasRenderingContext2D, p: DrawParams, diff: SequenceDiff): void {
+  const { seq, view, theme: t, width, height } = p;
+  const rate = seq.timebase.rate;
+  const rows = new Map(trackRows(seq).map((r) => [r.track.id, r]));
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, RULER_H, width, height - RULER_H);
+  ctx.clip();
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  const box = (it: { trackId: string; start: number; duration: number }, stroke: string, fill: string) => {
+    const row = rows.get(it.trackId);
+    if (!row) return;
+    const x0 = ticksToX(it.start, rate, view);
+    const x1 = ticksToX(it.start + it.duration, rate, view);
+    if (x1 < 0 || x0 > width) return;
+    const y = RULER_H + row.y - view.scrollY + 2;
+    ctx.fillStyle = fill;
+    ctx.strokeStyle = stroke;
+    ctx.fillRect(x0, y, Math.max(2, x1 - x0), row.h - 4);
+    ctx.strokeRect(x0 + 0.5, y + 0.5, Math.max(2, x1 - x0) - 1, row.h - 5);
+  };
+  for (const r of diff.removed) box(r, t.danger, 'rgba(240,82,79,0.14)');
+  for (const c of diff.changed) if (c.what.includes('moved') || c.what.includes('trimmed') || c.what.includes('track')) box(c.before, t.warn, 'rgba(232,179,58,0.10)');
+  ctx.restore();
+}
+
 /** Paint the whole timeline canvas (ruler + lanes + playhead). Cost is proportional to what is visible, not to clip count. */
+/** How long drawing takes, for the performance tests (a counter and a sum: free to keep on). */
+export const timelineStats = { draws: 0, totalMs: 0, maxMs: 0 };
+
 export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void {
   const { seq, view, theme: t, width, height } = p;
   const rate = seq.timebase.rate;
@@ -276,7 +337,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void
   ctx.restore();
 
   /* ruler */
-  ctx.fillStyle = t.bg1;
+  ctx.fillStyle = t.bg2;
   ctx.fillRect(0, 0, width, RULER_H);
   ctx.fillStyle = t.line;
   ctx.fillRect(0, RULER_H - 1, width, 1);
@@ -293,7 +354,7 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void
   ctx.strokeStyle = t.line;
   ctx.lineWidth = 1;
   for (const m of minor) if (m.x >= 0 && m.x <= width) vline(ctx, m.x, RULER_H - 6, RULER_H - 1);
-  ctx.fillStyle = t.text3;
+  ctx.fillStyle = t.text2;
   ctx.font = `500 10px ${t.fontMono}`;
   ctx.textBaseline = 'top';
   for (const m of major) {
@@ -320,6 +381,8 @@ export function drawTimeline(ctx: CanvasRenderingContext2D, p: DrawParams): void
     ctx.closePath();
     ctx.fill();
   }
+
+  if (p.review) drawReview(ctx, p, p.review);
 
   /* snap guide */
   if (p.snapGuide != null) {

@@ -29,7 +29,7 @@ export class EditRequestError extends Error {
   }
 }
 
-const info = (t: Transaction): TransactionInfo => ({ id: t.id, label: t.label, origin: t.origin, revision: t.revision, at: t.at, opCount: t.ops.length });
+const info = (t: Transaction): TransactionInfo => ({ id: t.id, label: t.label, origin: t.origin, revision: t.revision, at: t.at, opCount: t.ops.length, ...(t.group ? { group: t.group } : {}) });
 
 const ORIGIN = /^(user|agent:[a-z0-9_-]+)$/i;
 
@@ -140,7 +140,7 @@ export class EditSession {
     if (!ORIGIN.test(origin)) throw new EditRequestError(400, 'bad_origin', `origin must be "user" or "agent:<name>", got "${origin}".`);
     if (!Array.isArray(req.ops) || req.ops.length === 0) throw new EditRequestError(400, 'no_ops', 'ops must be a non-empty array.');
 
-    this.editor.begin(req.label ?? defaultLabel(req.ops), origin);
+    this.editor.begin(req.label ?? defaultLabel(req.ops), origin, req.group);
     let patches: unknown[] = [];
       try {
       req.ops.forEach((op, opIndex) => {
@@ -170,6 +170,16 @@ export class EditSession {
   redo(): { revision: number; label: string | null } {
     const tx = this.editor.redo();
     return { revision: this.editor.revision, label: tx?.label ?? null };
+  }
+
+  undoGroup(group: string): { revision: number; count: number } {
+    const count = this.editor.undoGroup(group);
+    return { revision: this.editor.revision, count };
+  }
+
+  redoGroup(group: string): { revision: number; count: number } {
+    const count = this.editor.redoGroup(group);
+    return { revision: this.editor.revision, count };
   }
 
   async restore(snapshotId: string): Promise<EditResponse> {

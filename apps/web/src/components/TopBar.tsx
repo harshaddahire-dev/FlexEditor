@@ -2,7 +2,9 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as ToggleGroup from '@radix-ui/react-toggle-group';
 import { ChevronDown, Download, PanelRight, Redo2, Settings, Undo2 } from 'lucide-react';
 import { useApp } from '../store/app';
+import { useExport } from '../store/export';
 import { useUi, type Workspace } from '../store/ui';
+import { Logo } from './Logo';
 import { ICON, Tip } from './ui';
 
 const WORKSPACES: { id: Workspace; label: string }[] = [
@@ -14,6 +16,8 @@ const WORKSPACES: { id: Workspace; label: string }[] = [
 
 export function TopBar() {
   const project = useApp((s) => s.project);
+  const sequence = useApp((s) => s.sequence);
+  const openRender = useExport((s) => s.openDialog);
   const wsConnected = useApp((s) => s.wsConnected);
   const closeProject = useApp((s) => s.closeProject);
   const rescan = useApp((s) => s.rescan);
@@ -25,9 +29,10 @@ export function TopBar() {
 
   return (
     <header className="topbar">
+      <Logo size={22} />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
-          <button className="btn btn--ghost topbar__project" aria-label="Project menu">
+          <button className="btn btn--ghost topbar__project" aria-label={`${project?.name ?? 'Project'} — project menu`}>
             <span className="topbar__name">{project?.name}</span>
             <ChevronDown {...ICON} />
           </button>
@@ -64,8 +69,8 @@ export function TopBar() {
       </ToggleGroup.Root>
       <span className="spacer" />
 
-      <Tip label="Export is available once a sequence exists">
-        <button className="btn" disabled><Download {...ICON} />Render</button>
+      <Tip label="Render the timeline to a video or audio file">
+        <button className="btn" disabled={!sequence} onClick={openRender}><Download {...ICON} />Render</button>
       </Tip>
       <Tip label={rightOpen ? 'Hide agent panel' : 'Show agent panel'}>
         <button className="btn btn--ghost btn--icon" aria-label="Toggle agent panel" aria-pressed={rightOpen} onClick={toggleRight}><PanelRight {...ICON} /></button>

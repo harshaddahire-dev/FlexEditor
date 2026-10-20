@@ -191,3 +191,29 @@ export class VideoSource {
     this.decoder?.close();
   }
 }
+
+const MAX_GOP_BYTES = 1.2 * 1024 ** 3;
+
+/**
+ * Can this browser decode the original file well enough to export from it? Checks the codec (WebCodecs support, which
+ * is what rules out H.264/HEVC in some browsers) and that one decoded GOP fits in memory (long-GOP 4K does not).
+ */
+export async function probeDecodable(url: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  if (typeof VideoDecoder === 'undefined') return { ok: false, reason: 'this browser has no WebCodecs' };
+  try {
+    const info = await openVideoTrack(url);
+    const cfg: VideoDecoderConfig = { codec: info.codec, codedWidth: info.width, codedHeight: info.height, ...(info.description ? { description: info.description } : {}) };
+    const sup = await VideoDecoder.isConfigSupported(cfg);
+    if (!sup.supported) return { ok: false, reason: `this browser cannot decode ${info.codec}` };
+    let longest = 0;
+    let run = 0;
+    for (const s of info.samples) {
+      run = s.sync ? 1 : run + 1;
+      longest = Math.max(longest, run);
+    }
+    if (longest * info.width * info.height * 1.5 * 2 > MAX_GOP_BYTES) return { ok: false, reason: `its GOP is ${longest} frames of ${info.width}×${info.height}, too large to decode in the browser` };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+  }
+}

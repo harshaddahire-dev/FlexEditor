@@ -15,9 +15,12 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "gen:sync-asset": "pnpm --filter @cutroom/server exec tsx scripts/gen-sync-asset.ts",
     "test:e2e": "playwright test -c e2e --grep-invert @shots",
-    "test:shots": "playwright test -c e2e --grep @shots"
+    "test:shots": "playwright test -c e2e --grep @shots",
+    "eval": "pnpm --filter @cutroom/agents exec vitest run test/evals.test.ts",
+    "eval:live": "pnpm --filter @cutroom/server eval:live"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.64.1",
     "typescript": "^5.6.3"
   }

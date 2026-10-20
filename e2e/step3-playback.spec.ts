@@ -83,9 +83,12 @@ test('moving the playhead with the keyboard repaints the monitor', async ({ page
   await page.getByRole('button', { name: 'Program', exact: true }).click();
   await proxyReady(page);
   const centre = () => page.evaluate(async () => {
-    const v = (window as unknown as { __cutroom: { viewer: { idle(): Promise<void>; pixel(x: number, y: number): number[] } } }).__cutroom.viewer;
+    const h = (window as unknown as { __cutroom: { useApp: { getState(): { sequence: { width: number; height: number } } }; viewer: { idle(): Promise<void>; request(): void; pixel(x: number, y: number): number[] } } }).__cutroom;
+    const v = h.viewer;
+    v.request(); // repaint now: a proxy that finished a moment ago has not triggered one yet
     await v.idle();
-    return v.pixel(320, 180)![0]! > 200;
+    const { width, height } = h.useApp.getState().sequence; // the project may be landscape or portrait: look at the middle of the frame
+    return v.pixel(width / 2, height / 2)![0]! > 200;
   });
 
   await page.getByTestId('program-monitor').click({ position: { x: 5, y: 5 } }); // focus away from inputs

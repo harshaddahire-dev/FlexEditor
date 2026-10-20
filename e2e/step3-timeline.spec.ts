@@ -74,7 +74,9 @@ test('build, cut, move, trim, undo and delete on the timeline with mouse and key
     const c = document.querySelector('[data-testid="timeline-canvas"]') as HTMLCanvasElement;
     const ctx = c.getContext('2d')!;
     const dpr = window.devicePixelRatio || 1;
-    const p = ctx.getImageData(Math.round(60 * dpr), Math.round((26 + 33 + 20) * dpr), 1, 1).data; // inside V1, below the empty V2 lane
+    const seq = (window as unknown as { __cutroom: { useApp: { getState(): { sequence: { tracks: { kind: string; height: number }[] } } } } }).__cutroom.useApp.getState().sequence;
+    const v2 = seq.tracks.filter((t) => t.kind === 'video').at(-1)!.height; // V2 is the top lane
+    const p = ctx.getImageData(Math.round(60 * dpr), Math.round((26 + v2 + 1 + 20) * dpr), 1, 1).data; // inside V1, below the empty V2 lane
     return [p[0], p[1], p[2]];
   });
   expect(painted).not.toEqual([11, 12, 14]); // not the --bg-0 lane colour
@@ -83,7 +85,8 @@ test('build, cut, move, trim, undo and delete on the timeline with mouse and key
   const at3 = await px(page, 3 * R);
   await page.mouse.click(at3.x, at3.y);
   await expect(page.getByLabel('Playhead timecode')).toHaveText('00:00:03:00');
-  await expect(page.getByLabel('Timecode', { exact: true })).toHaveText('00:00:03:00'); // viewer shows the same
+  await page.getByRole('button', { name: 'Program', exact: true }).click();
+  await expect(page.getByLabel('Timecode', { exact: true })).toHaveText('00:00:03:00'); // the program monitor shows the same
 
   // --- blade tool: press C, click the clip at 3 s → linked split of video and audio
   await page.keyboard.press('c');
@@ -151,7 +154,8 @@ test('transport, shuttle keys, in/out, markers, zoom and the command palette', a
   const tc = page.getByLabel('Playhead timecode');
   // Space plays from the playhead; it advances in whole frames and stops again
   await page.keyboard.press('Space');
-  await page.waitForTimeout(700);
+  await expect.poll(async () => tc.textContent(), { timeout: 8000 }).not.toBe('00:00:00:00'); // first play starts the audio device
+  await page.waitForTimeout(400);
   await page.keyboard.press('Space');
   const stopped = await tc.textContent();
   expect(stopped).not.toBe('00:00:00:00');

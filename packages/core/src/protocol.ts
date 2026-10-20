@@ -75,6 +75,8 @@ export interface TransactionInfo {
   revision: number;
   at: number;
   opCount: number;
+  /** Set for edits made by one agent run. */
+  group?: string;
 }
 
 export interface SnapshotInfo {
@@ -110,6 +112,8 @@ export interface EditRequest {
   /** `user` or `agent:<name>`. */
   origin?: string;
   ops: unknown[];
+  /** Edits sharing a group are undone together. */
+  group?: string;
   /** Reject if the server sequence has moved past this revision. */
   baseRevision?: number;
 }
@@ -160,7 +164,10 @@ export type ServerEvent =
   | { type: 'scan'; report: ScanReport }
   /** The sequence changed. `load` carries the whole sequence; the others carry Immer patches to apply in order. */
   | { type: 'sequence'; kind: 'commit' | 'undo' | 'redo' | 'load'; revision: number; patches: Patch[]; sequence?: Sequence }
-  | { type: 'history'; history: HistoryState };
+  | { type: 'history'; history: HistoryState }
+  | { type: 'agent'; kind: 'event'; runId: string; event: import('./agent').RunEvent }
+  | { type: 'agent'; kind: 'turn'; turn: import('./agent').ChatTurn }
+  | { type: 'export'; export: import('./export').ExportInfo };
 
 export interface ApiError {
   error: string;

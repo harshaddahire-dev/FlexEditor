@@ -3,7 +3,9 @@ import { readBool, writeBool } from '../lib/layout';
 
 export type Workspace = 'edit' | 'audio' | 'captions' | 'color';
 export type LeftTab = 'media' | 'transcript' | 'captions' | 'effects' | 'transitions' | 'skills';
+export type RightTab = 'inspector' | 'agent';
 export type Theme = 'dark' | 'light';
+export type SettingsTab = 'project' | 'providers' | 'extensions' | 'system';
 
 const WORKSPACE_TAB: Record<Workspace, LeftTab> = { edit: 'media', audio: 'media', captions: 'captions', color: 'effects' };
 
@@ -19,13 +21,15 @@ interface UiState {
   workspace: Workspace;
   leftTab: LeftTab;
   rightOpen: boolean;
+  rightTab: RightTab;
+  setRightTab(t: RightTab): void;
   settingsOpen: boolean;
-  settingsTab: 'project' | 'system';
+  settingsTab: SettingsTab;
   theme: Theme;
   setWorkspace(w: Workspace): void;
   setLeftTab(t: LeftTab): void;
   toggleRight(): void;
-  openSettings(tab?: 'project' | 'system'): void;
+  openSettings(tab?: SettingsTab): void;
   closeSettings(): void;
   setTheme(t: Theme): void;
 }
@@ -34,6 +38,8 @@ export const useUi = create<UiState>()((set, get) => ({
   workspace: 'edit',
   leftTab: 'media',
   rightOpen: readBool('rightOpen', true),
+  rightTab: 'inspector',
+  setRightTab: (rightTab) => set({ rightTab }),
   settingsOpen: false,
   settingsTab: 'project',
   theme: readTheme(),

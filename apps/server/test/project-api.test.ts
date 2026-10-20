@@ -20,7 +20,7 @@ afterEach(async () => {
 
 async function tmp(prefix: string): Promise<string> {
   const d = await fs.mkdtemp(path.join(os.tmpdir(), `cutroom-${prefix}-`));
-  cleanup.push(() => fs.rm(d, { recursive: true, force: true }));
+  cleanup.push(() => fs.rm(d, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   return d;
 }
 
@@ -339,6 +339,19 @@ describe('upload', () => {
     expect(b.manager.findMedia(media.id)!.status.proxy).toBe('done');
     // the first video defines the project settings
     expect(b.manager.current!.settings).toMatchObject({ width: 640, height: 360 });
+  });
+
+  it('the first video in path order defines a new project, however the probes interleave', async () => {
+    for (let trial = 0; trial < 3; trial++) {
+      const b = await makeApp();
+      const dir = await tmp('order');
+      // sorted order: a-wide.mp4 (landscape) first, then z-tall.mp4 (the 90°-rotated fixture) and a few more files to keep probes busy
+      await fs.copyFile(fx.sync, path.join(dir, 'a-wide.mp4'));
+      for (const n of ['m1.mp4', 'm2.mp4', 'm3.mp4']) await fs.copyFile(fx.rotated, path.join(dir, n));
+      await fs.copyFile(fx.rotated, path.join(dir, 'z-tall.mp4'));
+      const { body } = await openProject(b, dir);
+      expect(body.project.settings.width, `trial ${trial}`).toBeGreaterThan(body.project.settings.height);
+    }
   });
 
   it('never overwrites: duplicates get a numeric suffix', async () => {

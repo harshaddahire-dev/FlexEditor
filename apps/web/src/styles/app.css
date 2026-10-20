@@ -102,7 +102,7 @@ select.input {
   left: 50%;
   transform: translate(-50%, -50%);
   width: min(640px, calc(100vw - 32px));
-  max-height: min(640px, calc(100vh - 32px));
+  max-height: min(760px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
   background: var(--bg-1);

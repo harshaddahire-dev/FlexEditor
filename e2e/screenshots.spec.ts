@@ -38,11 +38,25 @@ test('capture screenshots @shots', async ({ page, request }) => {
   await page.waitForTimeout(400);
   await page.getByRole('option', { name: /interview/ }).first().click();
   await page.screenshot({ path: path.join(out, '7-timeline.png') });
+  // program monitor + inspector on a selected clip
+  await page.evaluate(() => {
+    const w = window as unknown as { __cutroom: { useApp: { getState(): { sequence: { tracks: { name: string; items: Record<string, { id: string }> }[] } } }; useTimeline: { getState(): { select(ids: string[]): void } } } };
+    const v1 = w.__cutroom.useApp.getState().sequence.tracks.find((t) => t.name === 'V1')!;
+    w.__cutroom.useTimeline.getState().select([Object.values(v1.items)[0]!.id]);
+  });
+  await page.getByRole('button', { name: 'Program', exact: true }).click();
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: path.join(out, '8-program-inspector.png') });
   await page.getByRole('radio', { name: 'List view' }).click();
   await page.screenshot({ path: path.join(out, '4-list-view.png') });
 
+  await page.getByRole('tab', { name: 'Agent' }).click();
+  await page.screenshot({ path: path.join(out, '9-agent.png') });
   await page.getByRole('button', { name: 'Settings' }).click();
   await page.screenshot({ path: path.join(out, '5-settings.png') });
+  await page.getByRole('tab', { name: 'Providers' }).click();
+  await page.getByRole('button', { name: 'Add provider' }).click();
+  await page.screenshot({ path: path.join(out, '10-providers.png') });
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: 'Settings' }).click();

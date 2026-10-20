@@ -31,14 +31,23 @@ function proxyProgress(jobs: JobInfo[]): number | undefined {
   return jobs.find((j) => j.kind === 'proxy')?.progress;
 }
 
-function ItemMenu({ media, onRelink }: { media: Media; onRelink: () => void }) {
+/**
+ * The "…" menu of a bin item. The item is an `option` of a listbox, which cannot contain a button, so the visible "…" is a
+ * mouse affordance only (hidden from assistive tech); the same menu opens from the keyboard with the Menu key or Shift+F10.
+ */
+function useItemMenu() {
+  const [open, set] = useState(false);
+  return { open, set, onKeyDown: (e: React.KeyboardEvent) => (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && (e.preventDefault(), set(true)) };
+}
+
+function ItemMenu({ media, onRelink, open, onOpenChange }: { media: Media; onRelink: () => void; open: boolean; onOpenChange: (o: boolean) => void }) {
   const { removeMedia, reproxy } = useApp();
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
-        <button className="tile__more" aria-label={`Actions for ${media.name}`} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        <span className="tile__more" role="presentation" aria-hidden="true" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           <MoreHorizontal {...ICON} />
-        </button>
+        </span>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu" align="end" sideOffset={4}>
@@ -69,8 +78,9 @@ interface ItemProps {
 
 function Tile({ media, selected, duration, progress, onSelect, onRelink }: ItemProps) {
   const warn = media.warnings.length > 0;
+  const menu = useItemMenu();
   return (
-    <div className="tile" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
+    <div className="tile" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => { menu.onKeyDown(e); if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}>
       <div className="tile__thumb">
         {media.status.poster === 'done' ? (
           <img src={mediaUrl(media.id, 'poster', media.mtimeMs)} alt="" draggable={false} />
@@ -92,19 +102,20 @@ function Tile({ media, selected, duration, progress, onSelect, onRelink }: ItemP
           </Tip>
         ) : null}
       </span>
-      <ItemMenu media={media} onRelink={onRelink} />
+      <ItemMenu media={media} onRelink={onRelink} open={menu.open} onOpenChange={menu.set} />
     </div>
   );
 }
 
 function Row({ media, selected, duration, progress, onSelect, onRelink }: ItemProps) {
+  const menu = useItemMenu();
   return (
-    <div className="rowitem" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}>
+    <div className="rowitem" role="option" aria-selected={selected} tabIndex={0} data-media-id={media.id} draggable={!media.missing} onDragStart={(e) => { e.dataTransfer.setData(MEDIA_MIME, media.id); e.dataTransfer.effectAllowed = 'copy'; }} onDoubleClick={() => { onSelect(); queueMicrotask(() => placeSelectedMedia('insert')); }} onClick={onSelect} onKeyDown={(e) => { menu.onKeyDown(e); if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}>
       <span style={{ color: media.missing ? 'var(--danger)' : 'var(--text-3)', display: 'inline-flex' }}><TypeIcon type={media.type} /></span>
       <span className="rowitem__name" title={`${media.path}${metaLine(media) ? ` — ${metaLine(media)}` : ''}`}>{media.name}</span>
       <span className="mono faint" style={media.missing ? { color: 'var(--danger)' } : undefined}>{media.missing ? 'missing' : media.type === 'image' ? '' : duration}</span>
       <StatusDots media={media} progress={progress} />
-      <ItemMenu media={media} onRelink={onRelink} />
+      <ItemMenu media={media} onRelink={onRelink} open={menu.open} onOpenChange={menu.set} />
     </div>
   );
 }

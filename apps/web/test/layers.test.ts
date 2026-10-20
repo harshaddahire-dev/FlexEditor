@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildClip, createSequence, defaultTransform, type Clip, type Sequence } from '@cutroom/core';
-import { applyAffine, activeVideoClips, layerMatrix, resolveTransform, sourceTicksAt } from '../src/playback/layers';
+import { applyAffine, activeCaptions, activeVideoClips, layerMatrix, planFrame, resolveTransform, sourceTicksAt } from '../src/playback/layers';
 
 const near = (a: [number, number], b: [number, number]) => {
   expect(a[0]).toBeCloseTo(b[0], 6);
@@ -71,5 +71,67 @@ describe('frame resolution', () => {
     expect(activeVideoClips(s, 3200)).toEqual([]);
     v2.items.c!.enabled = true;
     expect(activeVideoClips(s, 1600).map((l) => l.clip.id)).toEqual(['b', 'c']);
+  });
+});
+
+describe('planFrame — transitions', () => {
+  const seq: Sequence = createSequence({ width: 1920, height: 1080, fps: { num: 30, den: 1 } });
+  const R = seq.timebase.rate;
+  const v1 = seq.tracks.find((t) => t.name === 'V1')!;
+  const a = buildClip('a', { mediaId: 'm', trackId: v1.id, start: 0, duration: 3 * R, sourceIn: 0 });
+  const b = buildClip('b', { mediaId: 'm', trackId: v1.id, start: 3 * R, duration: 3 * R, sourceIn: 0 });
+  v1.items.a = a;
+  v1.items.b = b;
+  const tr = (alignment: 'center' | 'start' | 'end') => ({ id: 'x1', type: 'dissolve', duration: R, alignment, params: {}, betweenClipIds: ['a', 'b'] as [string, string] });
+
+  it('outside the window the clips play normally; the cut is half-open', () => {
+    v1.transitions = [tr('center')];
+    expect(planFrame(seq, R).map((p) => p.kind)).toEqual(['clip']);
+    expect(planFrame(seq, 2.5 * R - 1).map((p) => p.kind)).toEqual(['clip']);
+    expect(planFrame(seq, 3.5 * R).map((p) => (p.kind === 'clip' ? p.clip.id : 'T'))).toEqual(['clip'].map(() => 'b'));
+  });
+
+  it('inside the window both clips become one transition item with progress 0→1', () => {
+    v1.transitions = [tr('center')];
+    const at = (t: number) => planFrame(seq, t)[0]!;
+    const s = at(2.5 * R);
+    expect(s).toMatchObject({ kind: 'transition', progress: 0 });
+    expect(at(3 * R)).toMatchObject({ kind: 'transition', progress: 0.5 });
+    expect((at(3.25 * R) as { progress: number }).progress).toBeCloseTo(0.75, 9);
+    expect(planFrame(seq, 3 * R)).toHaveLength(1); // not drawn twice
+    const t = at(3 * R) as Extract<ReturnType<typeof planFrame>[number], { kind: 'transition' }>;
+    expect([t.from.id, t.to.id]).toEqual(['a', 'b']);
+  });
+
+  it('start and end alignment move the window to one side of the cut', () => {
+    v1.transitions = [tr('start')];
+    expect(planFrame(seq, 2.99 * R)[0]!.kind).toBe('clip');
+    expect(planFrame(seq, 3 * R)[0]).toMatchObject({ kind: 'transition', progress: 0 });
+    expect(planFrame(seq, 4 * R)[0]!.kind).toBe('clip');
+    v1.transitions = [tr('end')];
+    expect(planFrame(seq, 2 * R)[0]).toMatchObject({ kind: 'transition', progress: 0 });
+    expect(planFrame(seq, 3 * R)[0]!.kind).toBe('clip');
+  });
+
+  it('a hidden track or a disabled clip is not planned', () => {
+    v1.transitions = [];
+    v1.muted = true;
+    expect(planFrame(seq, R)).toEqual([]);
+    v1.muted = false;
+    a.enabled = false;
+    expect(planFrame(seq, R)).toEqual([]);
+    a.enabled = true;
+  });
+});
+
+describe('activeCaptions', () => {
+  it('returns captions on screen, half-open, from caption tracks only', () => {
+    const seq: Sequence = createSequence({ width: 1920, height: 1080, fps: { num: 30, den: 1 } });
+    const R = seq.timebase.rate;
+    seq.tracks.push({ id: 'tc', kind: 'caption', name: 'C1', locked: false, muted: false, solo: false, height: 32, crossfadeMs: 0, transitions: [], items: { p1: { kind: 'caption', id: 'p1', trackId: 'tc', start: R, duration: R, words: [], styleId: 'default', createdBy: 'user', accepted: true } } });
+    expect(activeCaptions(seq, 0)).toEqual([]);
+    expect(activeCaptions(seq, R).map((x) => x.caption.id)).toEqual(['p1']);
+    expect(activeCaptions(seq, 2 * R - 1)).toHaveLength(1);
+    expect(activeCaptions(seq, 2 * R)).toEqual([]);
   });
 });

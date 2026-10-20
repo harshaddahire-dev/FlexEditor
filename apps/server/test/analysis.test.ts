@@ -20,7 +20,7 @@ afterEach(async () => {
 
 async function tmp(prefix: string): Promise<string> {
   const d = await fs.mkdtemp(path.join(os.tmpdir(), `cutroom-${prefix}-`));
-  cleanup.push(() => fs.rm(d, { recursive: true, force: true }));
+  cleanup.push(() => fs.rm(d, { recursive: true, force: true, maxRetries: 8, retryDelay: 100 }));
   return d;
 }
 async function makeApp(opts: Parameters<typeof buildApp>[1] = {}) {

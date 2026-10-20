@@ -53,6 +53,13 @@ export async function generateSyncAsset(out: string, o: SyncAssetOptions = {}): 
   return out;
 }
 
+/** A solid-colour clip (no audio) — for pixel-exact checks of effects and transitions. */
+export async function generateColorAsset(out: string, color: string, seconds = 3, fps = 30): Promise<string> {
+  await fs.mkdir(path.dirname(out), { recursive: true });
+  await ff(['-f', 'lavfi', '-i', `color=c=${color}:s=640x360:r=${fps}:d=${seconds}`, '-c:v', 'libx264', '-preset', 'ultrafast', '-crf', '16', '-pix_fmt', 'yuv420p', '-g', String(fps), out]);
+  return out;
+}
+
 export interface SyncReport {
   fps: number;
   flashTimes: number[];
