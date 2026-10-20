@@ -44,11 +44,16 @@ export interface InstallerOptions {
   onInstalled?: () => void | Promise<void>;
 }
 
-const RELEASE_API = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases/latest';
+// the newest releases often carry only source archives, so look through the recent ones for a build with Windows binaries
+const RELEASE_API = 'https://api.github.com/repos/ggml-org/whisper.cpp/releases?per_page=30';
+/** Windows zips in order of preference: plain CPU, then OpenBLAS, then 32-bit (runs on 64-bit Windows). Never the CUDA ones. */
+const WINDOWS_ASSETS = ['whisper-bin-x64.zip', 'whisper-blas-bin-x64.zip', 'whisper-bin-Win32.zip'];
 const MODEL_BASE = 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main';
 
 interface Release {
   tag_name: string;
+  draft?: boolean;
+  prerelease?: boolean;
   tarball_url?: string;
   assets?: { name: string; browser_download_url: string }[];
 }
@@ -143,10 +148,12 @@ export class WhisperInstaller {
 
   /* ---------- whisper.cpp itself ---------- */
 
-  private async release(signal: AbortSignal): Promise<Release> {
+  /** Recent releases, newest first (the API gives a list; a single release object is accepted too). */
+  private async releases(signal: AbortSignal): Promise<Release[]> {
     const res = await this.fetchFn(this.opts.releaseApi ?? RELEASE_API, { headers: { 'user-agent': 'cutroom', accept: 'application/vnd.github+json' }, signal });
-    if (!res.ok) throw new Error(`Could not look up the latest whisper.cpp release (HTTP ${res.status}). Check your internet connection.`);
-    return (await res.json()) as Release;
+    if (!res.ok) throw new Error(`Could not look up whisper.cpp releases (HTTP ${res.status}). Check your internet connection.`);
+    const json = (await res.json()) as Release | Release[];
+    return (Array.isArray(json) ? json : [json]).filter((r) => !r.draft && !r.prerelease);
   }
 
   private async installBinary(plan: BinaryPlan, signal: AbortSignal): Promise<void> {
@@ -162,10 +169,20 @@ export class WhisperInstaller {
   }
 
   private async downloadWindowsBinary(signal: AbortSignal): Promise<void> {
-    const rel = await this.release(signal);
-    const asset =
-      rel.assets?.find((a) => a.name === 'whisper-bin-x64.zip') ?? rel.assets?.find((a) => /^whisper-bin-.*x64.*\.zip$/i.test(a.name) && !/blas|cublas|cuda/i.test(a.name));
-    if (!asset) throw new Error(`whisper.cpp ${rel.tag_name} has no Windows download (whisper-bin-x64.zip). Install it yourself and set WHISPER_CPP_BIN.`);
+    const releases = await this.releases(signal);
+    let rel: Release | undefined;
+    let asset: { name: string; browser_download_url: string } | undefined;
+    for (const r of releases) {
+      for (const name of WINDOWS_ASSETS) {
+        asset = r.assets?.find((a) => a.name === name);
+        if (asset) break;
+      }
+      if (asset) {
+        rel = r;
+        break;
+      }
+    }
+    if (!rel || !asset) throw new Error(`None of the last ${releases.length} whisper.cpp releases has a Windows download. Install whisper.cpp yourself and set WHISPER_CPP_BIN.`);
     await fs.mkdir(this.binDir, { recursive: true });
     const zip = path.join(this.binDir, 'download.zip.partial');
     this.set({ message: `Downloading whisper.cpp ${rel.tag_name}…` });
@@ -183,8 +200,8 @@ export class WhisperInstaller {
   }
 
   private async buildFromSource(signal: AbortSignal): Promise<void> {
-    const rel = await this.release(signal);
-    if (!rel.tarball_url) throw new Error('The whisper.cpp release has no source download.');
+    const rel = (await this.releases(signal))[0];
+    if (!rel?.tarball_url) throw new Error('The whisper.cpp release has no source download.');
     const work = path.join(this.binDir, 'src');
     await fs.rm(work, { recursive: true, force: true });
     await fs.mkdir(work, { recursive: true });

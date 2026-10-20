@@ -23,7 +23,14 @@ beforeEach(async () => {
     hits.push(req.url ?? '');
     if (req.url === '/release') {
       if (!releaseOk) return void res.writeHead(500).end();
-      return void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ tag_name: 'v9.9.9', assets: [{ name: 'whisper-bin-x64.zip', browser_download_url: `${base}/whisper-bin-x64.zip` }] }));
+      // like the real list: the newest release has only source archives, an older one has the Windows build
+      return void res.writeHead(200, { 'content-type': 'application/json' }).end(
+        JSON.stringify([
+          { tag_name: 'v9.9.9', assets: [{ name: 'v9.9.9.zip', browser_download_url: `${base}/nope.zip` }] },
+          { tag_name: 'v9.9.8', prerelease: true, assets: [{ name: 'whisper-bin-x64.zip', browser_download_url: `${base}/nope.zip` }] },
+          { tag_name: 'v9.9.7', assets: [{ name: 'whisper-cublas-12.4.0-bin-x64.zip', browser_download_url: `${base}/nope.zip` }, { name: 'whisper-bin-x64.zip', browser_download_url: `${base}/whisper-bin-x64.zip` }] },
+        ]),
+      );
     }
     if (req.url === '/whisper-bin-x64.zip') return void res.writeHead(200, { 'content-length': zip.length }).end(Buffer.from(zip));
     if (req.url === '/ggml-base.bin') return void res.writeHead(200, { 'content-length': 2000 }).end(Buffer.alloc(2000, 7));
@@ -84,7 +91,7 @@ describe('WhisperInstaller', () => {
     inst.start();
     const s = await until(inst, 'done', 'error');
     expect(s.status).toBe('error');
-    expect(s.error).toMatch(/latest whisper\.cpp release/);
+    expect(s.error).toMatch(/look up whisper\.cpp releases/);
     expect(await fs.readdir(path.join(dir, 'whisper')).catch(() => [])).toEqual([]);
   });
 
@@ -95,6 +102,15 @@ describe('WhisperInstaller', () => {
     const inst = make({ platform: 'linux' });
     inst.start();
     expect((await until(inst, 'error', 'done')).error).toMatch(/cmake/);
+  });
+
+  it('says so plainly when no recent release carries a Windows build', async () => {
+    server.removeAllListeners('request');
+    server.on('request', (_req, res) => void res.writeHead(200).end(JSON.stringify([{ tag_name: 'v1', assets: [{ name: 'v1.zip', browser_download_url: `${base}/x` }] }])));
+    const inst = make({ onInstalled: undefined });
+    inst.start();
+    const s = await until(inst, 'error', 'done');
+    expect(s.error).toMatch(/None of the last 1 whisper\.cpp releases has a Windows download/);
   });
 
   it('a model that is cut short is an error, not a corrupt file', async () => {

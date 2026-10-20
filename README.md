@@ -164,7 +164,7 @@ Settings → System → Transcription show **Install transcription** — one cli
 (Tiny 75 MB, Base 142 MB, Small 466 MB). It puts everything in `<app data>/whisper` and `<app data>/models`, then transcribes the
 media that was waiting. It downloads only when you click, and works offline afterwards.
 
-- **Windows:** downloads the prebuilt `whisper-bin-x64.zip` from the whisper.cpp GitHub release and the model from Hugging Face.
+- **Windows:** downloads the prebuilt `whisper-bin-x64.zip` from the newest whisper.cpp GitHub release that has one (the very latest sometimes ships source only) and the model from Hugging Face.
 - **macOS:** runs `brew install whisper-cpp` (needs Homebrew) and downloads the model.
 - **Linux:** builds whisper.cpp from the release source (needs `cmake` and a C++ compiler) and downloads the model.
 - Where none of that is possible the card says what to install. You can always set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put
