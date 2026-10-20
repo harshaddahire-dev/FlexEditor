@@ -1,19 +1,33 @@
 name: Desktop installers
 
 # Builds the Cutroom desktop app for Windows, macOS and Linux and publishes the installers as a GitHub release.
-#   - push a tag like v0.2.0           → release v0.2.0
-#   - push to the branch below / Run workflow → release v0.1.0 (updated in place)
+# Installed apps check this repo's latest release and update themselves, so every build gets a version higher than the last:
+#   - push a tag like v1.2.0                  → release v1.2.0 (exactly that version)
+#   - push to main / the branch below / Run workflow → release v0.1.<run number> (a new patch version each time)
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
-    branches: ['claude/relaxed-bohr-gbks6j']
+    branches: ['main', 'claude/relaxed-bohr-gbks6j']
+    paths-ignore: ['**.md', 'docs/**']
 
 permissions:
   contents: write # publish the installers on the release
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="0.1.${GITHUB_RUN_NUMBER}"; fi
+          if ! [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then echo "::error::'$v' is not a version like 1.2.3"; exit 1; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: version
     strategy:
       fail-fast: false
       matrix:
@@ -40,6 +54,7 @@ jobs:
         run: node desktop/build.mjs dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false' # unsigned builds: do not go looking for a signing certificate
+          CUTROOM_VERSION: ${{ needs.version.outputs.version }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -48,13 +63,15 @@ jobs:
             release/*.exe
             release/*.dmg
             release/*.AppImage
+            release/latest*.yml
+            release/*.blockmap
           if-no-files-found: error
 
   # one job publishes, after every build has finished, so the release is created exactly once
   release:
-    needs: build
+    needs: [version, build]
     # publish whatever built, even if one platform failed
-    if: ${{ always() }}
+    if: ${{ always() && needs.version.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,9 +82,10 @@ jobs:
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.1.0' }}
+          tag_name: v${{ needs.version.outputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Cutroom ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || 'v0.1.0' }}
+          name: Cutroom ${{ needs.version.outputs.version }}
+          make_latest: true
           body: |
             Desktop app for Windows, macOS and Linux — download, install, run. FFmpeg is included; nothing else to install.
 
@@ -75,10 +93,14 @@ jobs:
             |---|---|
             | Windows | `Cutroom-*-win-x64.exe` |
             | macOS | `Cutroom-*-mac-*.dmg` |
-            | Linux | `Cutroom-*-linux-x64.AppImage` (then `chmod +x` and run) |
+            | Linux | `Cutroom-*-linux-*.AppImage` (then `chmod +x` and run) |
 
             The installers are not code-signed: on Windows choose **More info → Run anyway**; on macOS right-click the app → **Open**.
+
+            Installed Windows and Linux (AppImage) apps update themselves from this release. macOS builds are unsigned, so there the app tells you about a new version and you download it here.
           files: |
             installers/*.exe
             installers/*.dmg
             installers/*.AppImage
+            installers/latest*.yml
+            installers/*.blockmap

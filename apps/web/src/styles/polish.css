@@ -2063,3 +2063,29 @@ body {
 .slash__item[data-on='true'] .slash__desc {
   color: var(--text-2);
 }
+
+/* desktop updates */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim, inherit);
+  padding: 0 var(--s-2, 8px);
+  white-space: nowrap;
+}
+.update-pill--ready {
+  border-color: var(--accent, currentColor);
+  color: var(--accent, inherit);
+}
+.update-notes {
+  max-height: 140px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--s-2, 8px);
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border, rgba(128, 128, 128, 0.3));
+  border-radius: var(--r-2, 6px);
+}
