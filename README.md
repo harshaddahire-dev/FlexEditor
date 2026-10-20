@@ -63,6 +63,11 @@ Copy diagnostics) and paste the text into a bug report. It lists the graphics (W
 machine can decode, each media file's codec and processing stages, the timeline's clips, running jobs and the end of the log —
 no keys and none of your footage. **Help → Show log file** opens the full log.
 
+**Black monitor.** The monitor checks itself: if a decoded frame is clearly bright but comes out black on the canvas (a hardware-decoder
+or GPU-upload fault on some machines), it switches to software video decoding automatically (remembered for next time). If that does
+not help either, it says so over the monitor. Long-GOP footage is always decoded in software, and a decoder that stops responding is
+reported after 20 s instead of leaving the picture silently black.
+
 ### Updates
 
 The desktop app keeps itself current from this repository's GitHub releases.
