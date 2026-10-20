@@ -40,7 +40,7 @@ import {
 import { probeFile } from './probe';
 import { generateAudioProxy, generatePoster, generateProxy, planAudioProxy, planProxy, proxyDimensions } from './proxy';
 import { ProcessAbortedError } from './proc';
-import { exists, fingerprintFile, mapLimit, writeJsonAtomic } from './util';
+import { exists, fingerprintFile, mapLimit, renameRetry, writeJsonAtomic } from './util';
 
 export interface ProjectManagerOptions {
   ffmpegPath: string;
@@ -547,6 +547,7 @@ export class ProjectManager extends EventEmitter<Events> {
           void this.analysis.ensure(id).catch(() => undefined);
         } catch (e) {
           const aborted = e instanceof ProcessAbortedError;
+          if (!aborted) console.error(`[proxy] ${m.name}: ${(e as Error).message}`);
           this.patchMedia(id, (x) => {
             x.status.proxy = aborted ? 'pending' : 'failed';
             if (!aborted) x.warnings.push(`Proxy generation failed: ${(e as Error).message}`);
@@ -790,7 +791,7 @@ export class ProjectManager extends EventEmitter<Events> {
       .then(async () => {
         const tmp = `${file}.${process.pid}.tmp`;
         await fs.writeFile(tmp, snapshot);
-        await fs.rename(tmp, file);
+        await renameRetry(tmp, file);
       })
       .catch((e) => console.error('[project] autosave failed:', e));
     return this.savePromise;

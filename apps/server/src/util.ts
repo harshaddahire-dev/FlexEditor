@@ -51,9 +51,26 @@ export async function exists(p: string): Promise<boolean> {
   }
 }
 
+/**
+ * `fs.rename` that survives Windows: antivirus, the search indexer and OneDrive/Dropbox sync briefly hold files that were just
+ * written, and the rename then fails with EPERM/EBUSY/EACCES. Retrying for a couple of seconds gets past all of them.
+ */
+export async function renameRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (attempt >= 20 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) throw e;
+      await new Promise((r) => setTimeout(r, 50 + attempt * 25));
+    }
+  }
+}
+
 /** Write JSON atomically: temp file in the same directory, then rename over the target. */
 export async function writeJsonAtomic(file: string, value: unknown): Promise<void> {
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, JSON.stringify(value, null, 2));
-  await fs.rename(tmp, file);
+  await renameRetry(tmp, file);
 }

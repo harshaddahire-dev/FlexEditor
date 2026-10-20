@@ -15,6 +15,30 @@ let win = null;
 let quitting = false;
 
 app.setAppUserModelId('app.cutroom.editor');
+
+// Everything the server prints (probe, proxy and render failures included) goes to a log file as well, so a problem can be read
+// afterwards: Help → Show log file.
+const logFile = path.join(app.getPath('userData'), 'logs', 'cutroom.log');
+try {
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  if (fs.existsSync(logFile) && fs.statSync(logFile).size > 2_000_000) fs.renameSync(logFile, logFile + '.old');
+} catch {
+  /* logging must never stop the app */
+}
+for (const level of ['log', 'info', 'warn', 'error']) {
+  const original = console[level].bind(console);
+  console[level] = (...args) => {
+    original(...args);
+    try {
+      fs.appendFileSync(logFile, `${new Date().toISOString()} ${level.toUpperCase()} ${args.map((a) => (a instanceof Error ? a.stack : typeof a === 'string' ? a : JSON.stringify(a))).join(' ')}\n`);
+    } catch {
+      /* ignore */
+    }
+  };
+}
+process.on('uncaughtException', (e) => console.error('uncaught', e));
+process.on('unhandledRejection', (e) => console.error('unhandled rejection', e));
+
 // the compositor needs WebGL2: when a machine's GPU or driver is blocklisted, fall back to software rendering instead of failing
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
@@ -65,6 +89,7 @@ function menu() {
       role: 'help',
       submenu: [
         { label: 'Cutroom on GitHub', click: () => void shell.openExternal(HOME_PAGE) },
+        { label: 'Show log file', click: () => void shell.showItemInFolder(logFile) },
         { label: 'Show app data folder', click: () => void shell.openPath(app.getPath('userData')) },
       ],
     },
@@ -153,6 +178,7 @@ if (!app.requestSingleInstanceLock()) {
       app.exit(1);
       return;
     }
+    console.info(`Cutroom ${server.version} on ${server.url}; FFmpeg ${server.ffmpeg.ok ? server.ffmpeg.version : 'NOT READY'}; ${process.platform} ${process.arch}`);
     if (!server.ffmpeg.ok) console.warn('FFmpeg is not ready:', server.ffmpeg.problems.join(' '));
     await createWindow(server.url);
     if (SMOKE) await smoke();

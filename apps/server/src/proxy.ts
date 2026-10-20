@@ -9,6 +9,7 @@ import {
   toNumber,
 } from '@cutroom/core';
 import { runText, runBinary } from './proc';
+import { renameRetry } from './util';
 
 /** Proxies are capped so the short side is at most this many pixels (1080p landscape / 1080x1920 portrait). */
 export const PROXY_MAX_SHORT_SIDE = 1080;
@@ -129,7 +130,7 @@ async function runWithProgress(ffmpegPath: string, args: string[], tmp: string, 
       },
     });
     if (r.code !== 0) throw new Error(`ffmpeg ${what} failed: ${r.stderr.trim().split('\n').slice(-3).join(' | ')}`);
-    await fs.rename(tmp, out);
+    await renameRetry(tmp, out);
     opts.onProgress?.(1);
   } catch (e) {
     await fs.rm(tmp, { force: true });

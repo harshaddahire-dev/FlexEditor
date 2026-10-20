@@ -21,7 +21,7 @@ import { ExtensionError, ExtensionService } from './extensions';
 import { ProviderError, ProviderService } from './providers';
 import { ProjectError, ProjectManager } from './project';
 import { isAllowedRequest, resolveInside, sanitizeRelativeUploadPath, UnsafePathError } from './security';
-import { exists } from './util';
+import { exists, renameRetry } from './util';
 
 export const APP_VERSION = '0.1.0';
 
@@ -395,7 +395,7 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     const tmp = `${dest}.uploading`;
     try {
       await pipeline(req.body as Readable, createWriteStream(tmp));
-      await fs.rename(tmp, dest);
+      await renameRetry(tmp, dest);
     } catch (e) {
       await fs.rm(tmp, { force: true });
       throw new ProjectError('upload_failed', `Upload interrupted: ${(e as Error).message}`, 400);
