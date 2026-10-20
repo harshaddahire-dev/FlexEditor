@@ -37,7 +37,7 @@ function stage() {
 
   fs.rmSync(app, { recursive: true, force: true });
   fs.mkdirSync(app, { recursive: true });
-  for (const f of ['main.cjs', 'preload.cjs']) fs.copyFileSync(path.join(here, f), path.join(app, f));
+  for (const f of ['main.cjs', 'preload.cjs', 'updater.cjs']) fs.copyFileSync(path.join(here, f), path.join(app, f));
   fs.copyFileSync(path.join(here, 'build', 'icon.png'), path.join(app, 'icon.png'));
   fs.cpSync(path.join(root, 'apps/web/dist'), path.join(app, 'web'), { recursive: true });
   fs.mkdirSync(path.join(app, 'server'));
@@ -51,9 +51,16 @@ function stage() {
   const srv = JSON.parse(fs.readFileSync(path.join(root, 'apps/server/package.json'), 'utf8'));
   const deps = Object.fromEntries(Object.entries(srv.dependencies).filter(([k]) => !k.startsWith('@cutroom/')));
   const top = JSON.parse(fs.readFileSync(path.join(here, 'package.json'), 'utf8'));
+  // CI sets CUTROOM_VERSION so every build is newer than the last one (that is what lets installed apps see an update)
+  const version = (process.env.CUTROOM_VERSION || top.version).replace(/^v/, '');
+  if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
+    console.error(`CUTROOM_VERSION "${version}" is not a version like 1.2.3`);
+    process.exit(2);
+  }
+  console.log(`Cutroom version ${version}`);
   fs.writeFileSync(
     path.join(app, 'package.json'),
-    JSON.stringify({ name: 'cutroom', productName: 'Cutroom', version: top.version, description: 'Local-first video editor where AI agents do the cutting.', author: 'Cutroom', license: 'MIT', main: 'main.cjs', dependencies: { ...deps, 'ffmpeg-static': '^5.2.0', 'ffprobe-static': '^3.1.0' } }, null, 2),
+    JSON.stringify({ name: 'cutroom', productName: 'Cutroom', version, description: 'Local-first video editor where AI agents do the cutting.', author: 'Cutroom', license: 'MIT', main: 'main.cjs', dependencies: { ...deps, 'electron-updater': '^6.8.9', 'ffmpeg-static': '^5.2.0', 'ffprobe-static': '^3.1.0' } }, null, 2),
   );
   // ffmpeg-static downloads the binary of the platform npm runs on; ask for the target's when cross-building
   run('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: app, env: crossBuild ? { npm_config_platform: targetPlatform, npm_config_arch: 'x64' } : {} });

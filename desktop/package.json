@@ -67,6 +67,14 @@
         "**/*",
         "!node_modules/ffprobe-static/bin/{win32,darwin}/**"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "harshaddahire-dev",
+        "repo": "FlexEditor",
+        "releaseType": "release"
+      }
+    ]
   }
 }

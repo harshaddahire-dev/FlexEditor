@@ -3,6 +3,7 @@ import path from 'node:path';
 import type { AnalysisState, Media } from '@cutroom/core';
 import type { JobQueue } from '../jobs';
 import { ProcessAbortedError } from '../proc';
+import { renameRetry } from '../util';
 import { analyzeWav } from './audio';
 import { generateFilmstrip, planFilmstrip } from './filmstrip';
 import { detectScenes } from './scenes';
@@ -54,7 +55,7 @@ const finite = (x: number): number | null => (Number.isFinite(x) ? x : null);
 async function writeAtomic(file: string, data: string | Uint8Array): Promise<void> {
   const tmp = `${file}.${process.pid}.tmp`;
   await fs.writeFile(tmp, data);
-  await fs.rename(tmp, file);
+  await renameRetry(tmp, file);
 }
 
 /**
@@ -170,7 +171,7 @@ export class MediaAnalysis {
           const plan = planFilmstrip(m.duration, m.proxy.width, m.proxy.height);
           const tmp = path.join(dir, `filmstrip.${process.pid}.tmp.jpg`);
           await generateFilmstrip(this.host.ffmpegPath, proxy, tmp, plan, signal);
-          await fs.rename(tmp, path.join(dir, 'filmstrip.jpg'));
+          await renameRetry(tmp, path.join(dir, 'filmstrip.jpg'));
           await writeAtomic(path.join(dir, 'filmstrip.json'), JSON.stringify(plan));
           const cuts = await detectScenes(this.host.ffmpegPath, proxy, m.proxy.fps, { signal });
           await writeAtomic(path.join(dir, 'scenes.json'), JSON.stringify({ fps: m.proxy.fps, cuts }));

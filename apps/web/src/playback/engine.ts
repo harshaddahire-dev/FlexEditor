@@ -120,7 +120,7 @@ export class PlaybackEngine {
     return this.running || this.want !== null ? new Promise((r) => this.idleWaiters.push(r)) : Promise.resolve();
   }
 
-  private readonly frames = new FrameBuilder('proxy');
+  private readonly frames = Object.assign(new FrameBuilder('proxy'), { onChange: () => this.request() });
 
   /** Live edits from the on-canvas handles: shown immediately, committed to the sequence when the drag ends. */
   setOverride(clipId: string, t: Partial<Transform> | null): void {

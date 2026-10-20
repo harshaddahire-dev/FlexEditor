@@ -5,6 +5,7 @@ import { useApp } from '../store/app';
 import { useExport } from '../store/export';
 import { useUi, type Workspace } from '../store/ui';
 import { Logo } from './Logo';
+import { UpdatePill } from './UpdatePill';
 import { ICON, Tip } from './ui';
 
 const WORKSPACES: { id: Workspace; label: string }[] = [
@@ -69,6 +70,7 @@ export function TopBar() {
       </ToggleGroup.Root>
       <span className="spacer" />
 
+      <UpdatePill />
       <Tip label="Render the timeline to a video or audio file">
         <button className="btn" disabled={!sequence} onClick={openRender}><Download {...ICON} />Render</button>
       </Tip>

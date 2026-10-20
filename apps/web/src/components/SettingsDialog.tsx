@@ -3,7 +3,9 @@ import * as Tabs from '@radix-ui/react-tabs';
 import { equalsR, type Rational } from '@cutroom/core';
 import { api } from '../lib/api';
 import { FPS_PRESETS, formatFps } from '../lib/format';
+import { desktop } from '../lib/native';
 import { useApp } from '../store/app';
+import { useUpdates } from '../store/updates';
 import { type SettingsTab, useUi } from '../store/ui';
 import { ExtensionsTab } from './ExtensionsTab';
 import { ProvidersTab } from './ProvidersTab';
@@ -89,6 +91,53 @@ function ProjectTab() {
   );
 }
 
+const ago = (t: number | null) => {
+  if (!t) return 'never';
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : new Date(t).toLocaleDateString();
+};
+
+/** Version, update status and the automatic-update switch. Desktop app only. */
+function UpdatesSection() {
+  const { state, init, check, download, install, setAuto } = useUpdates();
+  useEffect(() => init(), [init]);
+  if (!desktop() || !state) return null;
+  const busy = state.status === 'checking' || state.status === 'downloading';
+  const line =
+    state.status === 'checking' ? 'Checking…'
+    : state.status === 'downloading' ? `Downloading ${state.latest} — ${state.percent}%`
+    : state.status === 'ready' ? `Version ${state.latest} is ready to install`
+    : state.status === 'available' ? `Version ${state.latest} is available`
+    : state.status === 'error' ? `Could not check: ${state.error}`
+    : 'You have the latest version';
+  return (
+    <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }} aria-labelledby="updates-title">
+      <span className="section-title" id="updates-title">About &amp; updates</span>
+      <dl className="dl">
+        <dt className="label">Installed</dt>
+        <dd data-testid="update-current">Cutroom {state.current}</dd>
+        <dt className="label">Status</dt>
+        <dd role="status" data-testid="update-line">{line}</dd>
+        <dt className="label">Last checked</dt>
+        <dd>{ago(state.lastChecked)}</dd>
+      </dl>
+      {state.status === 'available' && !state.canInstall ? (
+        <div className="callout">This build can't replace itself{desktop()?.platform === 'darwin' ? ' (macOS needs a signed app for that)' : ''}. Download the new version and install it over this one — your projects and settings are kept.</div>
+      ) : null}
+      {state.notes ? <pre className="update-notes">{state.notes}</pre> : null}
+      <label className="row" style={{ gap: 'var(--s-2)' }}>
+        <input type="checkbox" role="switch" checked={state.auto} onChange={(e) => void setAuto(e.target.checked)} disabled={!state.canInstall} />
+        Download updates automatically
+      </label>
+      <div className="row" style={{ gap: 'var(--s-2)' }}>
+        <button className="btn" disabled={busy || state.status === 'ready'} onClick={() => void check()}>Check for updates</button>
+        {state.status === 'available' ? <button className="btn btn--primary" onClick={() => void download()}>{state.canInstall ? 'Download' : 'Open download page'}</button> : null}
+        {state.status === 'ready' ? <button className="btn btn--primary" onClick={() => void install(false)}>Restart to update</button> : null}
+      </div>
+    </section>
+  );
+}
+
 function SystemTab() {
   const health = useApp((s) => s.health);
   const recheck = useApp((s) => s.recheckFfmpeg);
@@ -100,6 +149,7 @@ function SystemTab() {
   );
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
+      <UpdatesSection />
       <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
         <span className="section-title">Appearance</span>
         <div className="row">

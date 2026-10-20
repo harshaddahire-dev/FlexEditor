@@ -56,6 +56,24 @@ Electron window — no Node, pnpm or FFmpeg setup. Projects, keys and settings l
   renders normally use the fast browser engine straight from your original files. `pnpm desktop:smoke` and `pnpm desktop:test` check
   the packaged app end to end (window, server, FFmpeg, open a folder, render, 0 frames of A/V offset).
 
+### Updates
+
+The desktop app keeps itself current from this repository's GitHub releases.
+
+- **Windows (installed) and Linux (AppImage)** update in place: about 15 seconds after start, and every 4 hours, the app checks quietly;
+  a new version downloads in the background (Windows downloads only the changed blocks) and installs when you restart. A **Restart to
+  update to x.y.z** button appears in the top bar when it is ready — if a render or agent run is in progress it asks before restarting.
+  Nothing is installed while you are working, and a failed background check (offline, rate limit) says nothing.
+- **macOS** builds are not code-signed, and macOS only lets signed apps replace themselves. There the app tells you a new version exists
+  and **Get x.y.z** opens the download page; install it over the old one (projects and settings are kept).
+- **Settings → System → About & updates** shows the installed version, when it last checked and the release notes, has **Check for
+  updates**, and a switch to turn automatic downloads off. **Help → Check for updates…** does the same from the menu.
+- **Publishing a release.** Every push to `main` builds all three installers and publishes release `v0.1.<run number>`; push a tag such as
+  `v1.2.0` to publish exactly that version. The release carries `latest*.yml` and `.blockmap` files — that is what installed apps read,
+  so keep them. Versions only go up (apps never downgrade). Builds made before updates existed (v0.1.0) need one manual reinstall.
+- Testing without a release: set `CUTROOM_UPDATE_URL` to a folder served over http that contains a `latest-<os>.yml` (see
+  `desktop/test/updates.spec.ts`).
+
 ## Requirements
 
 - Node 20+ and pnpm 10
@@ -112,6 +130,8 @@ handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timec
 - **Program monitor.** Video proxies (H.264, or VP9 when the browser cannot decode H.264 — the browser reports which) are demuxed
   with mp4box from a Range-fetched sample table and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
   for a timeline tick is chosen with integer arithmetic, so the flash frame of the sync asset lands on exactly its frame.
+  Proxies of long or 4K clips take a while (they are queued ahead of analysis, made with a fast encoder preset, and shown with a
+  progress bar); until one exists the monitor decodes the original file when this machine can, so the picture never waits.
 - **Audio.** `planAudio` turns the sequence into *voices* (mute/solo, gain, balance, fades, and 8 ms equal-power crossfades at cuts
   that have handle media). Voices are baked to stereo in half-second slices on absolute sample boundaries and placed on the
   `AudioContext` timeline at exact sample times; the audio clock is the playback master clock. Export uses the *same* slices through

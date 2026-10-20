@@ -21,6 +21,7 @@
     "desktop": "node desktop/build.mjs run",
     "desktop:dist": "node desktop/build.mjs dist",
     "desktop:smoke": "node desktop/build.mjs smoke",
+    "desktop:unit": "node --test desktop/test/updater.test.mjs",
     "desktop:test": "playwright test -c desktop/playwright.config.ts"
   },
   "devDependencies": {

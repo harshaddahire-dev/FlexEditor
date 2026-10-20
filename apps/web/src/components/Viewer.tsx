@@ -130,6 +130,36 @@ function TransportBar() {
  * Centre panel. Program is the composited sequence at the playhead (WebGL, decoded from proxies); Source shows the
  * media selected in the bin with its metadata. Picking media in the bin switches to Source.
  */
+/** "Preparing proxy…" — or, when a proxy could not be made, why, with a way to try again. */
+function ProxyNote() {
+  const media = useApp((s) => s.media);
+  const reproxy = useApp((s) => s.reproxy);
+  const jobs = useApp((s) => s.jobs);
+  const failed = Object.values(media).filter((m) => m.status.proxy === 'failed');
+  if (!failed.length) {
+    const live = Object.values(jobs).filter((j) => j.kind === 'proxy' && (j.state === 'running' || j.state === 'queued'));
+    const running = live.find((j) => j.state === 'running');
+    const label = running ? `Preparing proxy… ${Math.round(running.progress * 100)}%` : live.length ? `Preparing proxy… waiting for ${live.length} job${live.length === 1 ? '' : 's'}` : 'Preparing proxy…';
+    return (
+      <div className="viewer__note" role="status">
+        {label}
+        {running ? <span className="viewer__bar"><i style={{ width: `${Math.round(running.progress * 100)}%` }} /></span> : null}
+      </div>
+    );
+  }
+  const first = failed[0]!;
+  const why = [...first.warnings].reverse().find((w) => w.startsWith('Proxy generation failed'))?.replace('Proxy generation failed: ', '') ?? 'unknown error';
+  return (
+    <div className="viewer__note viewer__note--error" role="alert">
+      <AlertTriangle {...ICON} />
+      <span>
+        The proxy for {first.name} could not be made: {why.slice(0, 220)}{' '}
+        <button className="btn btn--sm" onClick={() => void reproxy(first.id)}>Try again</button>
+      </span>
+    </div>
+  );
+}
+
 export function Viewer() {
   const project = useApp((s) => s.project);
   const seq = useApp((s) => s.sequence);
@@ -167,7 +197,7 @@ export function Viewer() {
       <div className="viewer">
         <div className="viewer__stage" hidden={mode !== 'program'} data-testid="program-monitor">
           <div ref={host} className="viewer__host" />
-          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error}</div> : status.waiting ? <div className="viewer__note" role="status">Preparing proxy…</div> : null}
+          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error}</div> : status.waiting ? <ProxyNote /> : null}
         </div>
         {mode === 'program' ? <TransportBar /> : null}
         <div className="viewer__stage" hidden={mode !== 'source'}>

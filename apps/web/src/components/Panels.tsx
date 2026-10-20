@@ -1,5 +1,7 @@
 import * as Tabs from '@radix-ui/react-tabs';
-import { PanelRightClose } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { Ellipsis, Plus, X } from 'lucide-react';
+import { useAgent } from '../store/agent';
 import { useUi, type LeftTab, type RightTab } from '../store/ui';
 import { AgentSetup } from './AgentSetup';
 import { Inspector } from './Inspector';
@@ -39,24 +41,49 @@ export function LeftPanel() {
 }
 
 const RIGHT_TABS: { id: RightTab; label: string }[] = [
-  { id: 'inspector', label: 'Inspector' },
   { id: 'agent', label: 'Agent' },
+  { id: 'inspector', label: 'Inspector' },
 ];
 
-/** Right side: the clip Inspector, and the agent chat (arrives with the agent runtime). */
+/** Right side, full height: the agent chat (and the clip Inspector) as one tall column. */
 export function AgentPanel() {
-  const { toggleRight, rightTab, setRightTab } = useUi();
+  const { toggleRight, rightTab, setRightTab, openSettings, setLeftTab } = useUi();
+  const busy = useAgent((s) => !!s.activeRunId);
+  const hasChat = useAgent((s) => s.turns.length > 0);
+  const clearChat = useAgent((s) => s.clearChat);
   return (
     <aside className="panel panel--right" aria-label="Inspector and agent">
       <Tabs.Root className="tabs__content" value={rightTab} onValueChange={(v) => setRightTab(v as RightTab)}>
-        <div className="tabs__bar">
-          <Tabs.List className="tabs__list tabs__list--bar" aria-label="Right panel">
+        <div className="agenthead">
+          <Tabs.List className="agenthead__tabs" aria-label="Right panel">
             {RIGHT_TABS.map((t) => (
-              <Tabs.Trigger key={t.id} className="tabs__tab" value={t.id}>{t.label}</Tabs.Trigger>
+              <Tabs.Trigger key={t.id} className="agenthead__tab" value={t.id}>{t.label}</Tabs.Trigger>
             ))}
           </Tabs.List>
+          <span className="spacer" />
+          {rightTab === 'agent' ? (
+            <>
+              <Tip label={busy ? 'Wait for the current run to finish' : 'New chat'}>
+                <button className="btn btn--ghost btn--icon btn--sm" aria-label="New chat" disabled={busy || !hasChat} onClick={() => void clearChat()}><Plus {...ICON} /></button>
+              </Tip>
+              <DropdownMenu.Root>
+                <Tip label="More">
+                  <DropdownMenu.Trigger asChild>
+                    <button className="btn btn--ghost btn--icon btn--sm" aria-label="Agent options"><Ellipsis {...ICON} /></button>
+                  </DropdownMenu.Trigger>
+                </Tip>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content className="menu" align="end" sideOffset={4}>
+                    <DropdownMenu.Item className="menu__item" onSelect={() => openSettings('providers')}>Providers…</DropdownMenu.Item>
+                    <DropdownMenu.Item className="menu__item" onSelect={() => openSettings('extensions')}>Plugins &amp; MCP…</DropdownMenu.Item>
+                    <DropdownMenu.Item className="menu__item" onSelect={() => setLeftTab('skills')}>Show skills</DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          ) : null}
           <Tip label="Hide panel">
-            <button className="btn btn--ghost btn--icon btn--sm" aria-label="Hide agent panel" onClick={toggleRight}><PanelRightClose {...ICON} /></button>
+            <button className="btn btn--ghost btn--icon btn--sm" aria-label="Hide agent panel" onClick={toggleRight}><X {...ICON} /></button>
           </Tip>
         </div>
         <Tabs.Content className="tabs__content tabs__scroll" value="inspector"><Inspector /></Tabs.Content>
