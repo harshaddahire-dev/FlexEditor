@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static';
 import fastifyWebsocket from '@fastify/websocket';
 import type { AgentSettings, EditRequest, ExportRequest, McpServerInput, FfmpegStatus, ProviderInput, HealthResponse, ProjectResponse, ProxyCodec, ProxySettingsResponse, ServerEvent } from '@cutroom/core';
 import { findWhisper, type WhisperInstall } from './analysis/whisper';
+import { WHISPER_MODELS, WhisperInstaller, type WhisperModelId } from './analysis/whisperInstall';
 import type { ServerConfig } from './config';
 import { AppDb } from './db';
 import { checkFfmpeg } from './ffmpeg';
@@ -44,6 +45,8 @@ export interface BuildOptions {
   jobConcurrency?: number;
   /** Override whisper.cpp discovery (tests). */
   whisper?: () => Promise<WhisperInstall | null>;
+  /** Override the one-click whisper installer (tests). */
+  whisperInstaller?: WhisperInstaller;
 }
 
 export async function buildApp(config: ServerConfig, options: BuildOptions = {}): Promise<BuiltApp> {
@@ -66,6 +69,18 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
     proxyCodec: () => appDb.getSetting<ProxyCodec>('proxyCodec') ?? 'h264',
     saveDelayMs: options.saveDelayMs,
   });
+
+  // one-click transcription setup; when it finishes, transcripts that were waiting for whisper.cpp are queued
+  const whisperInstaller =
+    options.whisperInstaller ??
+    new WhisperInstaller({
+      dataDir: config.dataDir,
+      releaseApi: process.env.CUTROOM_WHISPER_RELEASE_API,
+      modelBase: process.env.CUTROOM_WHISPER_MODEL_BASE,
+      onInstalled: async () => {
+        for (const m of [...(manager.current?.media ?? [])]) await manager.analysis.retry(m.id).catch(() => undefined);
+      },
+    });
 
   /* ---- only talk to pages on this machine ---- */
   app.addHook('onRequest', async (req, reply) => {
@@ -149,9 +164,20 @@ export async function buildApp(config: ServerConfig, options: BuildOptions = {})
       hasProject: !!manager.current,
       whisper: w
         ? { available: true, model: path.basename(w.model) }
-        : { available: false, hint: `Install whisper.cpp and a ggml model, then set WHISPER_CPP_BIN / WHISPER_MODEL (or put ggml-*.bin in ${path.join(config.dataDir, 'models')}).` },
+        : { available: false, hint: `Use “Install transcription” (one click), or install whisper.cpp yourself and set WHISPER_CPP_BIN / WHISPER_MODEL (or put ggml-*.bin in ${path.join(config.dataDir, 'models')}).` },
     };
   });
+
+  /** Transcription setup: what is installed, what a one-click install would do, and how far it is. */
+  app.get('/api/whisper', async () => {
+    const w = await whisper();
+    return { available: !!w, model: w ? path.basename(w.model) : undefined, install: whisperInstaller.state(), plan: await whisperInstaller.plan(), models: WHISPER_MODELS };
+  });
+  app.post<{ Body: { model?: string } }>('/api/whisper/install', async (req, reply) => {
+    const model = (WHISPER_MODELS.find((m) => m.id === req.body?.model)?.id ?? 'base') as WhisperModelId;
+    return reply.code(202).send(whisperInstaller.start(model));
+  });
+  app.post('/api/whisper/install/cancel', async () => (whisperInstaller.cancel(), whisperInstaller.state()));
 
   app.post('/api/health/recheck', async () => {
     ffmpeg = await checkFfmpeg(config.ffmpegPath, config.ffprobePath);

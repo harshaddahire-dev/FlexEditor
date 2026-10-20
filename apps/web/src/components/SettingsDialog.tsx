@@ -9,6 +9,7 @@ import { useUpdates } from '../store/updates';
 import { type SettingsTab, useUi } from '../store/ui';
 import { ExtensionsTab } from './ExtensionsTab';
 import { ProvidersTab } from './ProvidersTab';
+import { WhisperCard } from './WhisperCard';
 import { Modal } from './ui';
 
 function ProjectTab() {
@@ -150,6 +151,10 @@ function SystemTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
       <UpdatesSection />
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+        <span className="section-title">Transcription</span>
+        <WhisperCard />
+      </section>
       <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
         <span className="section-title">Appearance</span>
         <div className="row">

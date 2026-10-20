@@ -152,9 +152,16 @@ After the proxies exist, every file is analysed in the background; results are c
 | Filmstrip | one sprite sheet of thumbnails | drawn on timeline clips |
 | Transcript | whisper.cpp, one word per segment so every word has its own timing | words + sentence segments |
 
-**Transcription** needs whisper.cpp and a ggml model; without them the stage shows *needs whisper.cpp* (everything else still works).
-Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again*
-in the Transcript tab.
+**Transcription** needs whisper.cpp and a ggml model. The app detects whether they are there; if not, the Transcript tab and
+Settings → System → Transcription show **Install transcription** — one click, with a progress bar and a choice of model
+(Tiny 75 MB, Base 142 MB, Small 466 MB). It puts everything in `<app data>/whisper` and `<app data>/models`, then transcribes the
+media that was waiting. It downloads only when you click, and works offline afterwards.
+
+- **Windows:** downloads the prebuilt `whisper-bin-x64.zip` from the whisper.cpp GitHub release and the model from Hugging Face.
+- **macOS:** runs `brew install whisper-cpp` (needs Homebrew) and downloads the model.
+- **Linux:** builds whisper.cpp from the release source (needs `cmake` and a C++ compiler) and downloads the model.
+- Where none of that is possible the card says what to install. You can always set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put
+  `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again* in the Transcript tab.
 
 ## Model providers
 
@@ -376,7 +383,7 @@ The server can read folders you point it at, so it only talks to pages on this m
 
 ### Known limits
 
-- Whisper.cpp and a ggml model must be installed separately for transcripts (everything else works without them).
+- Transcripts need whisper.cpp and a ggml model: install them with one click from the Transcript tab (everything else works without them).
 - The browser export engine decodes one GOP at a time; very long-GOP 4K sources are routed to the FFmpeg engine automatically.
 - The FFmpeg engine approximates vignette, teal & orange, pixelate and a few transitions, and animates effect parameters at their
   clip-start value; the result says which approximations were used.

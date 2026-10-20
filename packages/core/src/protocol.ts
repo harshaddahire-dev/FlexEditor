@@ -58,6 +58,16 @@ export interface HealthResponse {
   whisper: { available: boolean; model?: string; hint?: string };
 }
 
+/** One-click transcription setup (whisper.cpp + a ggml model). */
+export interface WhisperSetup {
+  available: boolean;
+  model?: string;
+  install: { status: 'idle' | 'running' | 'done' | 'error'; step?: 'binary' | 'model'; percent: number; message: string; error?: string };
+  /** What an install would fetch: the program (`unsupported` = the user has to install it, see `note`) and/or a model. */
+  plan: { binary: 'have' | 'download' | 'brew' | 'build' | 'unsupported'; model: boolean; note?: string };
+  models: readonly { id: string; label: string; sizeMb: number }[];
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
