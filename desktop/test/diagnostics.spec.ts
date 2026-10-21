@@ -39,6 +39,7 @@ test('Help → Copy diagnostics puts the graphics, codec, media and timeline fac
     expect(text).toMatch(/"h264":(true|false)/);
     expect(text).toContain('Media clip.mp4: video');
     expect(text).toMatch(/video .*: 1 items; clip /);
+    expect(text).toMatch(/"viewer":\{"status":/); // the monitor's own state
     expect(text).toContain('--- log');
   } finally {
     await run.close();

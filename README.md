@@ -140,7 +140,8 @@ handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timec
   `project.json`, snapshots agent edits under `.cutroom/history`, and broadcasts Immer patches over the WebSocket; the browser
   mirrors them and refetches if it ever misses one.
 - **Program monitor.** Video proxies (H.264, or VP9 when the browser cannot decode H.264 — the browser reports which) are demuxed
-  with mp4box from a Range-fetched sample table and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
+  with mp4box from a Range-fetched sample table (only the `moov` header is read, found by walking the top-level box headers, wherever
+  it sits in the file) and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
   for a timeline tick is chosen with integer arithmetic, so the flash frame of the sync asset lands on exactly its frame.
   Proxies of long or 4K clips take a while (they are queued ahead of analysis, made with a fast encoder preset, and shown with a
   progress bar); until one exists the monitor decodes the original file when this machine can, so the picture never waits.

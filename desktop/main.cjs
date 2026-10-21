@@ -143,6 +143,7 @@ async function copyDiagnostics() {
         for (const [k, c] of Object.entries(codecs)) { try { out.decode[k] = (await VideoDecoder.isConfigSupported({ codec: c, codedWidth: 1920, codedHeight: 1080 })).supported; } catch (e) { out.decode[k] = 'error'; } }
         out.monitorNote = (document.querySelector('[data-testid="program-monitor"] .viewer__note') || {}).innerText || null;
         const c = document.querySelector('.viewer__host canvas'); out.canvas = c ? c.width + 'x' + c.height : null;
+        try { out.viewer = window.__cutroomViewer ? window.__cutroomViewer() : null; } catch (e) { out.viewer = 'error ' + e; }
         return out;
       })()`)
       .catch((e) => ({ error: String(e) }));

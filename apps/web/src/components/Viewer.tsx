@@ -209,7 +209,7 @@ export function Viewer() {
       <div className="viewer">
         <div className="viewer__stage" hidden={mode !== 'program'} data-testid="program-monitor">
           <div ref={host} className="viewer__host" />
-          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error} <DiagnosticsLink /></div> : status.waiting ? <ProxyNote /> : null}
+          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error} <DiagnosticsLink /></div> : status.waiting ? <ProxyNote /> : status.loading ? <div className="viewer__note" role="status">Loading the picture… <DiagnosticsLink /></div> : null}
         </div>
         {mode === 'program' ? <TransportBar /> : null}
         <div className="viewer__stage" hidden={mode !== 'source'}>

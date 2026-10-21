@@ -12,8 +12,13 @@ export interface ViewerStatus {
   error: string | null;
   /** Clips under the playhead whose proxy is not ready yet. */
   waiting: number;
+  /** A frame has been loading for a while (opening a long file, decoding a long GOP): say so rather than sit black. */
+  loading: boolean;
 }
-export const useViewerStatus = create<ViewerStatus>()(() => ({ error: null, waiting: 0 }));
+export const useViewerStatus = create<ViewerStatus>()(() => ({ error: null, waiting: 0, loading: false }));
+
+/** How long a draw may take before the monitor says "Loading the picture…". */
+const SLOW_DRAW_MS = 1500;
 
 /** What the monitor last painted — also the contract the e2e tests assert frame accuracy against. */
 export interface Shown {
@@ -117,10 +122,17 @@ export class PlaybackEngine {
       while (this.want !== null) {
         const t = this.want;
         this.want = null;
+        const slow = setTimeout(() => useViewerStatus.setState({ loading: true }), SLOW_DRAW_MS);
+        this.drawStarted = performance.now();
         try {
           await this.draw(t);
         } catch (e) {
-          useViewerStatus.setState({ error: e instanceof Error ? e.message : String(e) });
+          this.lastError = e instanceof Error ? e.message : String(e);
+          useViewerStatus.setState({ error: this.lastError });
+        } finally {
+          clearTimeout(slow);
+          this.drawStarted = 0;
+          if (useViewerStatus.getState().loading) useViewerStatus.setState({ loading: false });
         }
       }
     } finally {
@@ -129,6 +141,24 @@ export class PlaybackEngine {
       this.idleWaiters = [];
       w.forEach((f) => f());
     }
+  }
+
+  private drawStarted = 0;
+  private lastError: string | null = null;
+
+  /** The monitor's inner state, for Copy diagnostics (no media content). */
+  diagnostics(): Record<string, unknown> {
+    return {
+      status: useViewerStatus.getState(),
+      stats: this.stats,
+      shown: this.shown && { ticks: this.shown.ticks, layers: this.shown.layers.length },
+      drawingForMs: this.drawStarted ? Math.round(performance.now() - this.drawStarted) : 0,
+      pending: this.want !== null,
+      lastError: this.lastError,
+      softwareDecode: useSoftwareDecode(),
+      blackGuard: this.guard.done ? 'settled' : 'watching',
+      canvas: this.compositor ? `${this.compositor.canvas.width}x${this.compositor.canvas.height}` : null,
+    };
   }
 
   /** Resolves once no render is pending or running (test hook; also used before export frame grabs). */
@@ -210,3 +240,5 @@ export class PlaybackEngine {
 }
 
 export const engine = new PlaybackEngine();
+// read by the desktop app's Copy diagnostics
+if (typeof window !== 'undefined') (window as unknown as { __cutroomViewer?: () => Record<string, unknown> }).__cutroomViewer = () => engine.diagnostics();
