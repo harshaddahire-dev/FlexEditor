@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('cutroomDesktop', {
   platform: process.platform,
   pickFolder: () => ipcRenderer.invoke('cutroom:pick-folder'),
   reveal: (target) => ipcRenderer.invoke('cutroom:reveal', String(target)),
+  copyDiagnostics: () => ipcRenderer.invoke('cutroom:diagnostics'),
   updates: {
     get: () => ipcRenderer.invoke('cutroom:update-get'),
     check: () => ipcRenderer.invoke('cutroom:update-check'),

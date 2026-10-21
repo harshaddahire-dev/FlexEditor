@@ -2,16 +2,23 @@ import { create } from 'zustand';
 import type { Sequence, Transform } from '@cutroom/core';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
-import { Compositor } from './compositor';
+import { BlackGuard } from './blackGuard';
+import { Compositor, type RenderItem } from './compositor';
 import { FrameBuilder } from './frameBuilder';
+import { setSoftwareDecode, useSoftwareDecode } from './videoSource';
 
 export interface ViewerStatus {
   /** Set when a proxy cannot be decoded; shown over the monitor. */
   error: string | null;
   /** Clips under the playhead whose proxy is not ready yet. */
   waiting: number;
+  /** A frame has been loading for a while (opening a long file, decoding a long GOP): say so rather than sit black. */
+  loading: boolean;
 }
-export const useViewerStatus = create<ViewerStatus>()(() => ({ error: null, waiting: 0 }));
+export const useViewerStatus = create<ViewerStatus>()(() => ({ error: null, waiting: 0, loading: false }));
+
+/** How long a draw may take before the monitor says "Loading the picture…". */
+const SLOW_DRAW_MS = 1500;
 
 /** What the monitor last painted — also the contract the e2e tests assert frame accuracy against. */
 export interface Shown {
@@ -79,6 +86,20 @@ export class PlaybackEngine {
         this.compositor = new Compositor(w, h);
         this.compositor.canvas.className = 'viewer__canvas';
         this.compositor.canvas.dataset.testid = 'program-canvas';
+        const canvas = this.compositor.canvas;
+        // a graphics-driver reset loses the WebGL context and the canvas goes black: say so, and start again when it is back
+        canvas.addEventListener('webglcontextlost', (e) => {
+          e.preventDefault();
+          useViewerStatus.setState({ error: 'The graphics driver reset and the picture was lost. Restoring…' });
+        });
+        canvas.addEventListener('webglcontextrestored', () => {
+          this.compositor?.dispose();
+          this.compositor = null;
+          canvas.remove();
+          useViewerStatus.setState({ error: null });
+          if (this.host) this.attach(this.host);
+          this.request();
+        });
       } catch (e) {
         useViewerStatus.setState({ error: e instanceof Error ? e.message : String(e) });
         return;
@@ -101,10 +122,17 @@ export class PlaybackEngine {
       while (this.want !== null) {
         const t = this.want;
         this.want = null;
+        const slow = setTimeout(() => useViewerStatus.setState({ loading: true }), SLOW_DRAW_MS);
+        this.drawStarted = performance.now();
         try {
           await this.draw(t);
         } catch (e) {
-          useViewerStatus.setState({ error: e instanceof Error ? e.message : String(e) });
+          this.lastError = e instanceof Error ? e.message : String(e);
+          useViewerStatus.setState({ error: this.lastError });
+        } finally {
+          clearTimeout(slow);
+          this.drawStarted = 0;
+          if (useViewerStatus.getState().loading) useViewerStatus.setState({ loading: false });
         }
       }
     } finally {
@@ -113,6 +141,24 @@ export class PlaybackEngine {
       this.idleWaiters = [];
       w.forEach((f) => f());
     }
+  }
+
+  private drawStarted = 0;
+  private lastError: string | null = null;
+
+  /** The monitor's inner state, for Copy diagnostics (no media content). */
+  diagnostics(): Record<string, unknown> {
+    return {
+      status: useViewerStatus.getState(),
+      stats: this.stats,
+      shown: this.shown && { ticks: this.shown.ticks, layers: this.shown.layers.length },
+      drawingForMs: this.drawStarted ? Math.round(performance.now() - this.drawStarted) : 0,
+      pending: this.want !== null,
+      lastError: this.lastError,
+      softwareDecode: useSoftwareDecode(),
+      blackGuard: this.guard.done ? 'settled' : 'watching',
+      canvas: this.compositor ? `${this.compositor.canvas.width}x${this.compositor.canvas.height}` : null,
+    };
   }
 
   /** Resolves once no render is pending or running (test hook; also used before export frame grabs). */
@@ -148,9 +194,35 @@ export class PlaybackEngine {
 
     comp.render(items);
     this.shown = { ticks, layers: built.layers };
+    this.watchForBlack(items, comp, seq);
     this.stats = { rendered: this.stats.rendered + 1, dropped: this.stats.dropped, lastMs: performance.now() - started };
     const st = useViewerStatus.getState();
-    if (st.waiting !== waiting || st.error) useViewerStatus.setState({ waiting, error: null });
+    if (st.waiting !== waiting || st.error !== this.blackError) useViewerStatus.setState({ waiting, error: this.blackError });
+  }
+
+  private readonly guard = new BlackGuard();
+  private blackError: string | null = null;
+
+  /** A decoded, bright frame that comes out black means the hardware decode/upload path is broken here: switch to software. */
+  private watchForBlack(items: RenderItem[], comp: Compositor, seq: Sequence): void {
+    let verdict: ReturnType<BlackGuard['check']>;
+    try {
+      verdict = this.guard.check(items, comp, seq.width, seq.height);
+    } catch {
+      return; // the check itself must never break playback
+    }
+    if (verdict !== 'black') return;
+    if (!useSoftwareDecode()) {
+      console.warn('[viewer] decoded frames come out black; switching to software decoding');
+      setSoftwareDecode(true);
+      this.frames.dispose();
+      this.guard.reset();
+      this.request();
+    } else {
+      this.blackError = 'Video frames are decoded but cannot be shown on this graphics setup. Use Copy diagnostics and send it along.';
+      this.guard.settle();
+      useViewerStatus.setState({ error: this.blackError });
+    }
   }
 
   dispose(): void {
@@ -168,3 +240,5 @@ export class PlaybackEngine {
 }
 
 export const engine = new PlaybackEngine();
+// read by the desktop app's Copy diagnostics
+if (typeof window !== 'undefined') (window as unknown as { __cutroomViewer?: () => Record<string, unknown> }).__cutroomViewer = () => engine.diagnostics();

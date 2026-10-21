@@ -56,6 +56,18 @@ Electron window — no Node, pnpm or FFmpeg setup. Projects, keys and settings l
   renders normally use the fast browser engine straight from your original files. `pnpm desktop:smoke` and `pnpm desktop:test` check
   the packaged app end to end (window, server, FFmpeg, open a folder, render, 0 frames of A/V offset).
 
+### Something wrong? Copy diagnostics
+
+If the monitor is black or a stage is stuck, press **Copy diagnostics** (under the monitor's note, in Settings → System, or Help →
+Copy diagnostics) and paste the text into a bug report. It lists the graphics (WebGL renderer, GPU status), which video codecs this
+machine can decode, each media file's codec and processing stages, the timeline's clips, running jobs and the end of the log —
+no keys and none of your footage. **Help → Show log file** opens the full log.
+
+**Black monitor.** The monitor checks itself: if a decoded frame is clearly bright but comes out black on the canvas (a hardware-decoder
+or GPU-upload fault on some machines), it switches to software video decoding automatically (remembered for next time). If that does
+not help either, it says so over the monitor. Long-GOP footage is always decoded in software, and a decoder that stops responding is
+reported after 20 s instead of leaving the picture silently black.
+
 ### Updates
 
 The desktop app keeps itself current from this repository's GitHub releases.
@@ -128,7 +140,8 @@ handled in the proxy (BT.709 limited, square pixels, short side ≤ 1080). Timec
   `project.json`, snapshots agent edits under `.cutroom/history`, and broadcasts Immer patches over the WebSocket; the browser
   mirrors them and refetches if it ever misses one.
 - **Program monitor.** Video proxies (H.264, or VP9 when the browser cannot decode H.264 — the browser reports which) are demuxed
-  with mp4box from a Range-fetched sample table and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
+  with mp4box from a Range-fetched sample table (only the `moov` header is read, found by walking the top-level box headers, wherever
+  it sits in the file) and decoded GOP by GOP with WebCodecs; frames are composited in WebGL2. The frame
   for a timeline tick is chosen with integer arithmetic, so the flash frame of the sync asset lands on exactly its frame.
   Proxies of long or 4K clips take a while (they are queued ahead of analysis, made with a fast encoder preset, and shown with a
   progress bar); until one exists the monitor decodes the original file when this machine can, so the picture never waits.
@@ -152,9 +165,16 @@ After the proxies exist, every file is analysed in the background; results are c
 | Filmstrip | one sprite sheet of thumbnails | drawn on timeline clips |
 | Transcript | whisper.cpp, one word per segment so every word has its own timing | words + sentence segments |
 
-**Transcription** needs whisper.cpp and a ggml model; without them the stage shows *needs whisper.cpp* (everything else still works).
-Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again*
-in the Transcript tab.
+**Transcription** needs whisper.cpp and a ggml model. The app detects whether they are there; if not, the Transcript tab and
+Settings → System → Transcription show **Install transcription** — one click, with a progress bar and a choice of model
+(Tiny 75 MB, Base 142 MB, Small 466 MB). It puts everything in `<app data>/whisper` and `<app data>/models`, then transcribes the
+media that was waiting. It downloads only when you click, and works offline afterwards.
+
+- **Windows:** downloads the prebuilt `whisper-bin-x64.zip` from the newest whisper.cpp GitHub release that has one (the very latest sometimes ships source only) and the model from Hugging Face.
+- **macOS:** runs `brew install whisper-cpp` (needs Homebrew) and downloads the model.
+- **Linux:** builds whisper.cpp from the release source (needs `cmake` and a C++ compiler) and downloads the model.
+- Where none of that is possible the card says what to install. You can always set `WHISPER_CPP_BIN` and `WHISPER_MODEL`, or put
+  `whisper-cli` on `PATH` and `ggml-*.bin` in `<app data>/models/`, then use *Check again* in the Transcript tab.
 
 ## Model providers
 
@@ -376,7 +396,7 @@ The server can read folders you point it at, so it only talks to pages on this m
 
 ### Known limits
 
-- Whisper.cpp and a ggml model must be installed separately for transcripts (everything else works without them).
+- Transcripts need whisper.cpp and a ggml model: install them with one click from the Transcript tab (everything else works without them).
 - The browser export engine decodes one GOP at a time; very long-GOP 4K sources are routed to the FFmpeg engine automatically.
 - The FFmpeg engine approximates vignette, teal & orange, pixelate and a few transitions, and animates effect parameters at their
   clip-start value; the result says which approximations were used.

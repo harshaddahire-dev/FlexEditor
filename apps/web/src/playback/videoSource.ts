@@ -1,4 +1,13 @@
+import { readBool, writeBool } from '../lib/layout';
 import { type SampleRec, type VideoTrackInfo, fetchRange, openVideoTrack } from './demux';
+
+let softwareDecode = readBool('softwareDecode', false);
+/** Decode every video in software (slower, but immune to hardware-decoder and GPU-upload problems). Remembered across launches. */
+export const useSoftwareDecode = (): boolean => softwareDecode;
+export function setSoftwareDecode(on: boolean): void {
+  softwareDecode = on;
+  writeBool('softwareDecode', on);
+}
 
 /** Which video codecs this browser can decode — reported to the server so proxies are made in a playable format. */
 export async function probeProxyCodec(): Promise<'h264' | 'vp9'> {
@@ -20,6 +29,10 @@ interface Gop {
 }
 
 const MAX_GOPS = 3;
+/** GOPs longer than this are decoded in software (see configFor). */
+const SOFTWARE_GOP_FRAMES = 24;
+/** A GOP that produces nothing for this long is a stalled decoder, reported instead of waiting forever. */
+const DECODE_TIMEOUT_MS = 20_000;
 /** Decoded frames held at once are kept under about this many bytes (I420), so long-GOP footage still plays. */
 const GOP_CACHE_BYTES = 1.2 * 1024 ** 3;
 
@@ -100,6 +113,23 @@ export class VideoSource {
     return { codec: this.info.codec, codedWidth: this.info.width, codedHeight: this.info.height, ...(this.info.description ? { description: this.info.description } : {}), optimizeForLatency: true };
   }
 
+  /**
+   * Decode a whole GOP with the decoder holding every frame until the GOP is done. A hardware decoder only has a small pool of
+   * output surfaces (about 16–20): with a long GOP (a 250-frame camera or ffmpeg default) it runs out, stops producing frames
+   * and never finishes, which looks like a black monitor. A software decoder has no such pool, so long GOPs use it.
+   */
+  private async configFor(gopFrames: number): Promise<VideoDecoderConfig> {
+    const base = this.config();
+    if (gopFrames <= SOFTWARE_GOP_FRAMES && !softwareDecode) return base;
+    const soft: VideoDecoderConfig = { ...base, hardwareAcceleration: 'prefer-software' };
+    try {
+      if ((await VideoDecoder.isConfigSupported(soft)).supported) return soft;
+    } catch {
+      /* fall back to the default decoder */
+    }
+    return base;
+  }
+
   private decoderOrNew(): VideoDecoder {
     if (this.decoder && this.decoder.state !== 'closed') return this.decoder;
     this.decoder = new VideoDecoder({ output: () => undefined, error: () => undefined });
@@ -130,7 +160,7 @@ export class VideoSource {
         error: (e) => failure.push(e),
       });
       const failure: DOMException[] = [];
-      decoder.configure(this.config());
+      decoder.configure(await this.configFor(run.length));
       for (const s of run) {
         decoder.decode(new EncodedVideoChunk({
           type: s.sync ? 'key' : 'delta',
@@ -139,8 +169,15 @@ export class VideoSource {
           data: new Uint8Array(data, s.offset - lo, s.size),
         }));
       }
-      await decoder.flush().catch((e: unknown) => failure.push(e as DOMException));
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const stalled = new Promise<'stalled'>((r) => (timer = setTimeout(() => r('stalled'), DECODE_TIMEOUT_MS)));
+      const outcome = await Promise.race([decoder.flush().then(() => 'ok' as const, (e: unknown) => (failure.push(e as DOMException), 'ok' as const)), stalled]);
+      clearTimeout(timer);
       decoder.close();
+      if (outcome === 'stalled') {
+        for (const f of frames.values()) f.close();
+        throw new Error(`The video decoder stopped responding after ${frames.size} of ${run.length} frames (${this.info.codec}, ${this.info.width}×${this.info.height}). Use Copy diagnostics and send it along.`);
+      }
       if (failure.length) {
         for (const f of frames.values()) f.close();
         throw new Error(`Could not decode the proxy: ${failure[0]!.message}`);

@@ -11,6 +11,7 @@ import type {
   HistoryState,
   FsListing,
   HealthResponse,
+  WhisperSetup,
   AgentSettings,
   ChatState,
   ChatTurn,
@@ -70,6 +71,9 @@ function safeJson(text: string): unknown {
 
 export const api = {
   health: () => request<HealthResponse>('GET', '/api/health'),
+  whisper: () => request<WhisperSetup>('GET', '/api/whisper'),
+  installWhisper: (model?: string) => request<WhisperSetup['install']>('POST', '/api/whisper/install', { model }),
+  cancelWhisperInstall: () => request<WhisperSetup['install']>('POST', '/api/whisper/install/cancel'),
   recheckFfmpeg: () => request<FfmpegStatus>('POST', '/api/health/recheck'),
   listDir: (path?: string) => request<FsListing>('GET', `/api/fs/list${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   recent: () => request<RecentProject[]>('GET', '/api/recent'),

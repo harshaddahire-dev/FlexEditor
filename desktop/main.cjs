@@ -6,7 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { BrowserWindow, Menu, app, dialog, ipcMain, shell } = require('electron');
+const { BrowserWindow, Menu, app, clipboard, dialog, ipcMain, shell } = require('electron');
 const { createUpdater } = require('./updater.cjs');
 
 const SMOKE = process.env.CUTROOM_SMOKE === '1';
@@ -118,6 +118,64 @@ async function workInProgress() {
   return (Array.isArray(jobs) && jobs.some((j) => j.state === 'queued' || j.state === 'running')) || !!(chat && chat.activeRunId);
 }
 
+/**
+ * Help → Copy diagnostics: everything needed to see why the picture is black or a stage is stuck, as text to paste —
+ * versions, graphics (WebGL renderer, GPU status), which codecs this machine can decode, the media and its stages, jobs,
+ * what the monitor says, and the end of the log. No file contents, no keys.
+ */
+async function copyDiagnostics() {
+  const lines = [`Cutroom ${app.getVersion()} · Electron ${process.versions.electron} · Chromium ${process.versions.chrome} · ${process.platform} ${process.arch}`];
+  const get = (p) => fetch(server.url + p).then((r) => r.json()).catch((e) => ({ error: String(e) }));
+  try {
+    lines.push('GPU status: ' + JSON.stringify(app.getGPUFeatureStatus()));
+    const gpu = await app.getGPUInfo('basic').catch(() => null);
+    if (gpu && gpu.gpuDevice) lines.push('GPU devices: ' + gpu.gpuDevice.map((d) => `${d.vendorId}:${d.deviceId}${d.active ? '*' : ''} ${d.driverVersion || ''}`).join(', '));
+  } catch {
+    /* ignore */
+  }
+  if (win && !win.isDestroyed()) {
+    const page = await win.webContents
+      .executeJavaScript(`(async () => {
+        const out = {};
+        try { const gl = document.createElement('canvas').getContext('webgl2'); const ext = gl && gl.getExtension('WEBGL_debug_renderer_info'); out.webgl2 = gl ? (ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'yes') : 'NOT AVAILABLE'; } catch (e) { out.webgl2 = 'error ' + e; }
+        const codecs = { h264: 'avc1.640028', h264_444: 'avc1.F4001F', hevc: 'hvc1.1.6.L93.B0', vp9: 'vp09.00.10.08', av1: 'av01.0.05M.08' };
+        out.decode = {};
+        for (const [k, c] of Object.entries(codecs)) { try { out.decode[k] = (await VideoDecoder.isConfigSupported({ codec: c, codedWidth: 1920, codedHeight: 1080 })).supported; } catch (e) { out.decode[k] = 'error'; } }
+        out.monitorNote = (document.querySelector('[data-testid="program-monitor"] .viewer__note') || {}).innerText || null;
+        const c = document.querySelector('.viewer__host canvas'); out.canvas = c ? c.width + 'x' + c.height : null;
+        try { out.viewer = window.__cutroomViewer ? window.__cutroomViewer() : null; } catch (e) { out.viewer = 'error ' + e; }
+        return out;
+      })()`)
+      .catch((e) => ({ error: String(e) }));
+    lines.push('Page: ' + JSON.stringify(page));
+  }
+  const health = await get('/api/health');
+  lines.push('FFmpeg: ' + JSON.stringify({ ok: health.ffmpeg && health.ffmpeg.ok, version: health.ffmpeg && health.ffmpeg.ffmpeg && health.ffmpeg.ffmpeg.version, problems: health.ffmpeg && health.ffmpeg.problems, whisper: health.whisper && health.whisper.available }));
+  const proj = await get('/api/project');
+  const media = (proj.project && proj.project.media) || [];
+  for (const m of media) {
+    const v = m.video;
+    lines.push(`Media ${m.name}: ${m.type} ${Math.round(Number(m.sizeBytes) / 1e6)} MB, ${v ? `${v.codec} ${v.profile || ''} ${v.pixFmt || ''} ${v.width}x${v.height}${v.hdr ? ' HDR' : ''}${v.vfr ? ' VFR' : ''}` : 'no video'}; status ${JSON.stringify(m.status)}; proxy ${m.proxy ? `${m.proxy.codec} ${m.proxy.width}x${m.proxy.height}` : 'none'}; warnings ${JSON.stringify(m.warnings)}`);
+  }
+  const seq = proj.project && proj.project.sequences && proj.project.sequences[0];
+  if (seq) {
+    lines.push(`Sequence: ${seq.width}x${seq.height} @ ${seq.timebase && seq.timebase.rate} ticks/s`);
+    for (const t of seq.tracks) {
+      const items = Object.values(t.items || {}).slice(0, 4).map((c) => `${c.kind}${c.mediaId ? ' ' + c.mediaId : ''} start=${c.start} dur=${c.duration}${c.sourceIn !== undefined ? ' in=' + c.sourceIn : ''}${c.speed ? ' speed=' + JSON.stringify(c.speed) : ''}${c.transform ? ' opacity=' + c.transform.opacity + ' scale=' + JSON.stringify(c.transform.scale) + ' pos=' + JSON.stringify(c.transform.position) + ' crop=' + JSON.stringify(c.transform.crop) : ''}`);
+      lines.push(`  ${t.kind} ${t.name}${t.muted ? ' (muted/hidden)' : ''}${t.locked ? ' (locked)' : ''}: ${Object.keys(t.items || {}).length} items; ${items.join(' | ')}`);
+    }
+  }
+  const jobs = await get('/api/jobs');
+  if (Array.isArray(jobs)) lines.push('Jobs: ' + jobs.slice(-8).map((j) => `${j.kind}/${j.state}/${Math.round(j.progress * 100)}%${j.error ? ' ' + j.error : ''}`).join('; '));
+  try {
+    lines.push('--- log (last 60 lines) ---', ...fs.readFileSync(logFile, 'utf8').trim().split('\n').slice(-60));
+  } catch {
+    /* no log */
+  }
+  clipboard.writeText(lines.join('\n'));
+  await dialog.showMessageBox(win ?? undefined, { type: 'info', message: 'Diagnostics copied', detail: 'Paste them into your message to the developer (Ctrl+V). They contain no keys and none of your footage.', buttons: ['OK'] });
+}
+
 /** Help → Check for updates…, with a native answer. */
 async function checkFromMenu() {
   if (!updater) return void dialog.showMessageBox(win ?? undefined, { type: 'info', message: 'Updates are not available in this build.', buttons: ['OK'] });
@@ -157,6 +215,7 @@ function menu() {
       submenu: [
         { label: 'Check for updates…', click: () => void checkFromMenu() },
         { label: 'Cutroom on GitHub', click: () => void shell.openExternal(HOME_PAGE) },
+        { label: 'Copy diagnostics', click: () => void copyDiagnostics() },
         { label: 'Show log file', click: () => void shell.showItemInFolder(logFile) },
         { label: 'Show app data folder', click: () => void shell.openPath(app.getPath('userData')) },
       ],
@@ -173,7 +232,7 @@ function createWindow(url) {
     show: false,
     title: 'Cutroom',
     backgroundColor: '#111112',
-    autoHideMenuBar: true,
+    autoHideMenuBar: false, // Help (diagnostics, log, updates) should be easy to find
     icon: fs.existsSync(path.join(__dirname, 'icon.png')) ? path.join(__dirname, 'icon.png') : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -210,6 +269,7 @@ ipcMain.handle('cutroom:reveal', (_e, target) => {
   if (typeof target === 'string' && path.isAbsolute(target) && fs.existsSync(target)) shell.showItemInFolder(target);
 });
 
+ipcMain.handle('cutroom:diagnostics', () => copyDiagnostics());
 ipcMain.handle('cutroom:update-get', () => (updater ? updater.state() : null));
 ipcMain.handle('cutroom:update-check', () => (updater ? updater.check({ manual: true }) : null));
 ipcMain.handle('cutroom:update-download', () => updater && updater.download());

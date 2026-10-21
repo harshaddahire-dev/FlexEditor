@@ -7,6 +7,7 @@ import { fetchTranscript, type TranscriptData } from '../store/analysis';
 import { useApp } from '../store/app';
 import { useTimeline } from '../store/timeline';
 import { ICON } from './ui';
+import { WhisperCard } from './WhisperCard';
 
 /** Transcript of the media selected in the bin; clicking a line moves the playhead to where it plays on the timeline. */
 export function TranscriptPanel() {
@@ -70,8 +71,9 @@ export function TranscriptPanel() {
 function Unavailable({ media, hint }: { media: Media; hint?: string }) {
   return (
     <div className="empty">
-      <p>Transcription needs whisper.cpp.</p>
-      <p className="faint">{hint ?? 'Install whisper.cpp and a ggml model.'}</p>
+      <p>Transcription needs whisper.cpp and a model.</p>
+      <WhisperCard compact />
+      <p className="faint">{hint}</p>
       <button className="btn btn--sm" onClick={() => void api.analyze(media.id)}>Check again</button>
     </div>
   );

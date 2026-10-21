@@ -193,7 +193,7 @@ export class MediaAnalysis {
     if (!install) {
       this.host.patch(id, (x) => {
         x.status.transcript = 'unavailable';
-        x.analysis.transcript = { reason: 'whisper.cpp or a ggml model was not found — set WHISPER_CPP_BIN and WHISPER_MODEL, or put ggml-*.bin in the app data "models" folder.' };
+        x.analysis.transcript = { reason: 'whisper.cpp or a ggml model was not found — use Install transcription in the Transcript tab, or set WHISPER_CPP_BIN and WHISPER_MODEL.' };
       });
       return;
     }

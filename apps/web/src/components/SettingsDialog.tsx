@@ -9,6 +9,7 @@ import { useUpdates } from '../store/updates';
 import { type SettingsTab, useUi } from '../store/ui';
 import { ExtensionsTab } from './ExtensionsTab';
 import { ProvidersTab } from './ProvidersTab';
+import { WhisperCard } from './WhisperCard';
 import { Modal } from './ui';
 
 function ProjectTab() {
@@ -125,6 +126,7 @@ function UpdatesSection() {
         <div className="callout">This build can't replace itself{desktop()?.platform === 'darwin' ? ' (macOS needs a signed app for that)' : ''}. Download the new version and install it over this one — your projects and settings are kept.</div>
       ) : null}
       {state.notes ? <pre className="update-notes">{state.notes}</pre> : null}
+      <div><button className="btn btn--sm" onClick={() => void desktop()?.copyDiagnostics()}>Copy diagnostics</button></div>
       <label className="row" style={{ gap: 'var(--s-2)' }}>
         <input type="checkbox" role="switch" checked={state.auto} onChange={(e) => void setAuto(e.target.checked)} disabled={!state.canInstall} />
         Download updates automatically
@@ -150,6 +152,10 @@ function SystemTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-4)' }}>
       <UpdatesSection />
+      <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
+        <span className="section-title">Transcription</span>
+        <WhisperCard />
+      </section>
       <section style={{ display: 'flex', flexDirection: 'column', gap: 'var(--s-2)' }}>
         <span className="section-title">Appearance</span>
         <div className="row">

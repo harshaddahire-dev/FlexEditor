@@ -2,6 +2,7 @@ import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Film, Pause, Play, Repeat, SkipBack, SkipForward, StepBack, StepForward } from 'lucide-react';
 import type { Media } from '@cutroom/core';
 import { mediaUrl } from '../lib/api';
+import { desktop } from '../lib/native';
 import { formatBytes, formatDuration, formatFps } from '../lib/format';
 import { framesToTimecode, frameTicks, sequenceDuration } from '@cutroom/core';
 import { useApp } from '../store/app';
@@ -130,6 +131,13 @@ function TransportBar() {
  * Centre panel. Program is the composited sequence at the playhead (WebGL, decoded from proxies); Source shows the
  * media selected in the bin with its metadata. Picking media in the bin switches to Source.
  */
+/** Desktop only: copies the facts needed to see what is wrong, to paste into a message. */
+function DiagnosticsLink() {
+  const d = desktop();
+  if (!d) return null;
+  return <button className="btn btn--ghost btn--sm viewer__diag" onClick={() => void d.copyDiagnostics()}>Copy diagnostics</button>;
+}
+
 /** "Preparing proxy…" — or, when a proxy could not be made, why, with a way to try again. */
 function ProxyNote() {
   const media = useApp((s) => s.media);
@@ -142,8 +150,11 @@ function ProxyNote() {
     const label = running ? `Preparing proxy… ${Math.round(running.progress * 100)}%` : live.length ? `Preparing proxy… waiting for ${live.length} job${live.length === 1 ? '' : 's'}` : 'Preparing proxy…';
     return (
       <div className="viewer__note" role="status">
-        {label}
-        {running ? <span className="viewer__bar"><i style={{ width: `${Math.round(running.progress * 100)}%` }} /></span> : null}
+        <span className="viewer__prog">
+          {label}
+          {running ? <span className="viewer__bar"><i style={{ width: `${Math.round(running.progress * 100)}%` }} /></span> : null}
+        </span>
+        <DiagnosticsLink />
       </div>
     );
   }
@@ -154,7 +165,8 @@ function ProxyNote() {
       <AlertTriangle {...ICON} />
       <span>
         The proxy for {first.name} could not be made: {why.slice(0, 220)}{' '}
-        <button className="btn btn--sm" onClick={() => void reproxy(first.id)}>Try again</button>
+        <button className="btn btn--sm" onClick={() => void reproxy(first.id)}>Try again</button>{' '}
+        <DiagnosticsLink />
       </span>
     </div>
   );
@@ -197,7 +209,7 @@ export function Viewer() {
       <div className="viewer">
         <div className="viewer__stage" hidden={mode !== 'program'} data-testid="program-monitor">
           <div ref={host} className="viewer__host" />
-          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error}</div> : status.waiting ? <ProxyNote /> : null}
+          {status.error ? <div className="viewer__note viewer__note--error" role="alert"><AlertTriangle {...ICON} />{status.error} <DiagnosticsLink /></div> : status.waiting ? <ProxyNote /> : status.loading ? <div className="viewer__note" role="status">Loading the picture… <DiagnosticsLink /></div> : null}
         </div>
         {mode === 'program' ? <TransportBar /> : null}
         <div className="viewer__stage" hidden={mode !== 'source'}>

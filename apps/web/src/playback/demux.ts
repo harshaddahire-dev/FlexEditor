@@ -38,31 +38,66 @@ async function fetchRange(url: string, start: number, end: number, signal?: Abor
 
 type EntryWithConfig = { avcC?: { write(s: DataStream): void }; hvcC?: { write(s: DataStream): void }; av1C?: { write(s: DataStream): void } };
 
+/** Where the `moov` box is: walks the top-level boxes by their 8–16 byte headers (a few tiny Range reads, never the media). */
+async function locateMoov(url: string, signal?: AbortSignal): Promise<{ start: number; end: number; total: number }> {
+  let pos = 0;
+  let total = Number.POSITIVE_INFINITY;
+  for (let guard = 0; guard < 64 && pos < total; guard++) {
+    const { data, total: t } = await fetchRange(url, pos, pos + 15, signal);
+    total = t;
+    if (data.byteLength < 8) break;
+    const v = new DataView(data);
+    let size = v.getUint32(0);
+    const type = String.fromCharCode(v.getUint8(4), v.getUint8(5), v.getUint8(6), v.getUint8(7));
+    if (size === 1 && data.byteLength >= 16) size = Number(v.getBigUint64(8));
+    else if (size === 0) size = total - pos; // runs to the end of the file
+    if (size < 8) break;
+    if (type === 'moov') return { start: pos, end: pos + size - 1, total };
+    pos += size;
+  }
+  throw new Error('This file has no readable movie header (moov box).');
+}
+
 /**
- * Parse the sample table of the first video track. Only the `moov` box is read (proxies are written with
- * `+faststart`); the media bytes are fetched later, per GOP, with Range requests.
+ * Parse the sample table of the first video track. Only the `ftyp` and `moov` boxes are read — wherever `moov` is (proxies are
+ * written with `+faststart`, many camera and screen-recorder files put it at the end); the media bytes are fetched later, per GOP,
+ * with Range requests. Reading the whole file first would take seconds for a long proxy and minutes (or all memory) for an original.
  */
 export async function openVideoTrack(url: string, signal?: AbortSignal): Promise<VideoTrackInfo> {
   const file = createFile();
-  let ready: (() => void) | undefined;
+  let isReady = false;
   let failure: Error | undefined;
-  const done = new Promise<void>((resolve) => (ready = resolve));
   file.onError = (_m: string, msg?: string) => {
     failure = new Error(`MP4 parse error: ${msg ?? _m}`);
-    ready?.();
   };
-  file.onReady = () => ready?.();
+  file.onReady = () => {
+    isReady = true;
+  };
 
-  let pos = 0;
-  let total = Number.POSITIVE_INFINITY;
-  while (pos < total) {
-    const { data, total: t } = await fetchRange(url, pos, pos + CHUNK - 1, signal);
-    total = t;
-    file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(data, pos));
-    pos += data.byteLength;
-    const state = await Promise.race([done.then(() => 'ready' as const), Promise.resolve('wait' as const)]);
-    if (state === 'ready' || failure) break;
+  const moov = await locateMoov(url, signal);
+  const total = moov.total;
+  // mp4box parses a contiguous stream, so it gets one: the file type box, then the movie header right after it. Sample offsets come
+  // from the header's own chunk table (absolute positions in the real file), so where the header sits in this stream does not matter.
+  let at = 0;
+  if (moov.start > 0) {
+    const head = await fetchRange(url, 0, Math.min(moov.start, 4096) - 1, signal).catch(() => null);
+    const v = head && head.data.byteLength >= 8 ? new DataView(head.data) : null;
+    const ftypSize = v ? v.getUint32(0) : 0;
+    const isFtyp = v ? String.fromCharCode(v.getUint8(4), v.getUint8(5), v.getUint8(6), v.getUint8(7)) === 'ftyp' : false;
+    if (head && isFtyp && ftypSize >= 8 && ftypSize <= head.data.byteLength) {
+      file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(head.data.slice(0, ftypSize), 0));
+      at = ftypSize;
+    }
   }
+  for (let pos = moov.start; pos <= moov.end && !isReady && !failure; ) {
+    const { data } = await fetchRange(url, pos, Math.min(moov.end, pos + 16 * CHUNK - 1), signal);
+    if (!data.byteLength) break;
+    file.appendBuffer(MP4BoxBuffer.fromArrayBuffer(data, at));
+    pos += data.byteLength;
+    at += data.byteLength;
+  }
+  file.flush();
+  if (!failure && !isReady) failure = new Error('Could not read the movie header of this file.');
   if (failure) throw failure;
   const info = file.getInfo();
   const track = info.videoTracks[0];
